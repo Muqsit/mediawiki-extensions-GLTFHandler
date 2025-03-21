@@ -1,4 +1,5 @@
 {
+	"homepage": "https://www.mediawiki.org/wiki/Extension:GLTFHandler",
 	"require-dev": {
 		"mediawiki/mediawiki-codesniffer": "46.0.0",
 		"mediawiki/mediawiki-phan-config": "0.15.1",

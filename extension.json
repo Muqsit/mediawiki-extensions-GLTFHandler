@@ -3,6 +3,7 @@
 	"author": [
 		"Muqsit"
 	],
+	"url": "https://www.mediawiki.org/wiki/Extension:GLTFHandler",
 	"descriptionmsg": "gltfhandler-desc",
 	"license-name": "GPL-2.0-or-later",
 	"type": "other",
