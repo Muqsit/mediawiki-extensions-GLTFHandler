@@ -131,7 +131,7 @@ final class GLTFParser{
 			}elseif(isset($node["translation"])){
 				[$tx, $ty, $tz] = $node["translation"];
 			}else{
-				[$tx, $ty, $tz] = [0, 0, 0];
+				continue;
 			}
 
 			$mesh = $this->properties["meshes"][$node["mesh"]];
