@@ -8,7 +8,9 @@ use function count;
 use function explode;
 use function implode;
 use function in_array;
+use function is_numeric;
 use function max;
+use function preg_match;
 
 class GLTFHandler extends \MediaHandler {
 
@@ -77,7 +79,8 @@ class GLTFHandler extends \MediaHandler {
 			"gltfhandler_camera_orbit" => "camera-orbit",
 			"gltfhandler_environment" => "environment",
 			"gltfhandler_poster" => "poster",
-			"gltfhandler_skybox" => "skybox"
+			"gltfhandler_skybox" => "skybox",
+			"gltfhandler_skybox_height" => "skybox-height"
 		];
 	}
 
@@ -93,6 +96,9 @@ class GLTFHandler extends \MediaHandler {
 		if(in_array($name, ["ar", "camera-orbit", "poster", "skybox", "environment"], true)){
 			return true;
 		}
+		if($name === "skybox-height"){
+			return is_numeric($value) || preg_match('/\s*([0-9.]+)\s*(mm|m|cm)/m', $value) > 0;
+		}
 		return true;
 	}
 
@@ -107,6 +113,7 @@ class GLTFHandler extends \MediaHandler {
 			isset($params["ar"]) ? "true" : "false",
 			$params["poster"] ?? "",
 			$params["skybox"] ?? "",
+			$params["skybox-height"] ?? "",
 			$params["environment"] ?? ""
 		]);
 	}
@@ -120,7 +127,7 @@ class GLTFHandler extends \MediaHandler {
 		if(count($values) !== 7){
 			return false;
 		}
-		$params = array_combine(["width", "camera-orbit", "ar", "poster", "skybox", "environment"], $values);
+		$params = array_combine(["width", "camera-orbit", "ar", "poster", "skybox", "skybox-height", "environment"], $values);
 		$params = array_filter($params, function($x){ return $x !== ""; });
 		$params["ar"] = $params["ar"] === "true";
 		return $params;

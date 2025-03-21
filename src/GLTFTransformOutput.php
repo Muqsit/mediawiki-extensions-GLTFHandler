@@ -4,9 +4,7 @@ namespace MediaWiki\Extension\GLTFHandler;
 
 use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
-use function ctype_digit;
 use function is_string;
-use function strlen;
 
 class GLTFTransformOutput extends \MediaTransformOutput {
 
@@ -38,6 +36,7 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 		$attributes["ar"] = isset($this->pParams["ar"]);
 		$attributes["camera-orbit"] = $this->pParams["camera-orbit"] ?? null;
 		$attributes["loading"] = "eager";
+		$attributes["skybox-height"] = $this->pParams["skybox-height"] ?? null;
 		$attributes["src"] = $this->pSourceFileURL;
 
 		if(isset($this->pParams["width"])){
