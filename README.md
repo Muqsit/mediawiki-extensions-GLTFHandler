@@ -1,5 +1,5 @@
 # GLTFHandler
-The GLTFHandler extension allows uploading and interacting with GLTF models on MediaWiki.
+GLTFHandler lets you upload and interact with GLTF models on MediaWiki.
 It uses [google/model-viewer](https://github.com/google/model-viewer) library to display the 3D models and view them in
 your environment using augmented reality (on supported devices).
 
@@ -28,6 +28,7 @@ Requires **MediaWiki 1.42.0** or later.
 GLTFHandler uses the exact syntax as your ordinary media files:
 ```
 [[File:MyModel.glb]]
+[[File:MyModel.gltf]]
 [[File:MyModel.glb|thumb|400px]]
 ```
 At the moment, the following file parameters are supported. See [model-viewer documentataion](https://modelviewer.dev/docs/index.html) for live examples. All parameters are optional.
@@ -38,7 +39,7 @@ At the moment, the following file parameters are supported. See [model-viewer do
 | `environment`  | A .hdr or .jpg file. Controls the environmental reflection of the model.<br/><i>Pertains to model-viewer's `environment-image` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `poster`       | An image file. Displays an image instead of the model, useful for showing the user something before a model is loaded and ready to render..<br/><i>Pertains to model-viewer's `poster` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `skybox`       | An equirectangular projection image (.png, .hdr, .jpg). Sets the background image of the scene.<br/><i>Pertains to model-viewer's `skybox-image` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `ox` `oy` `or` | Set the starting and/or subsequent orbital position of the camera. You can control the azimuthal, theta, and polar, phi, angles (phi is measured down from the top), and the radius from the center of the model. Accepts values of the form "\$theta \$phi \$radius", like `ox=10deg\|oy=75deg\|oz=1.5m`. Also supports units in radians ("rad") for angles and centimeters ("cm") or millimeters ("mm") for camera distance. Camera distance can also be set as a percentage ('%'), where 100% gives the model tight framing within any window based on all possible theta and phi values.<br/><i>Pertains to model-viewer's `camera-orbit` attribute.</i> 
+| `ox` `oy` `or` | Set the starting and/or subsequent orbital position of the camera. You can control the azimuthal, theta, and polar, phi, angles (phi is measured down from the top), and the radius from the center of the model. Accepts values of the form "\$theta \$phi \$radius", like `ox=10deg\|oy=75deg\|or=1.5m`. Also supports units in radians ("rad") for angles and centimeters ("cm") or millimeters ("mm") for camera distance. Camera distance can also be set as a percentage ('%'), where 100% gives the model tight framing within any window based on all possible theta and phi values.<br/><i>Pertains to model-viewer's `camera-orbit` attribute.</i> 
 
 Example usage of optional parameters:
 ```
