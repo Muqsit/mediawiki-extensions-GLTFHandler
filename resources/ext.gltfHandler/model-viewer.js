@@ -1,4 +1,4 @@
-module.exports = (() => {
+module.exports = (async () => {
 /**
  * @license
  * Copyright 2017 Google LLC
