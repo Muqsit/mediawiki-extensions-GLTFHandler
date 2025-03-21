@@ -1,0 +1,8 @@
+{
+	"@metadata": {
+		"authors": [
+			"Muqsit"
+		]
+	},
+	"gltfhandler-desc": "Adds support for GLTF files on MediaWiki"
+}

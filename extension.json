@@ -1,0 +1,53 @@
+{
+	"name": "GLTFHandler",
+	"author": [
+		"Muqsit"
+	],
+	"descriptionmsg": "gltfhandler-desc",
+	"license-name": "GPL-2.0-or-later",
+	"type": "other",
+	"requires": {
+		"MediaWiki": ">= 1.42.0"
+	},
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\GLTFHandler\\": "src/"
+	},
+	"HookHandlers": {
+		"GLTFHandlerHooks": {
+			"class": "MediaWiki\\Extension\\GLTFHandler\\Hooks"
+		}
+	},
+	"Hooks": {
+		"BeforePageDisplay": "GLTFHandlerHooks",
+		"MimeMagicImproveFromExtension": "GLTFHandlerHooks"
+	},
+	"MessagesDirs": {
+		"GLTFHandler": [
+			"i18n"
+		]
+	},
+	"ResourceModules": {
+		"ext.gltfHandler": {
+			"localBasePath": "resources/ext.gltfHandler",
+			"remoteExtPath": "GLTFHandler/resources/ext.gltfHandler",
+			"dependencies": [],
+			"styles": [],
+			"messages": [],
+			"scripts": [
+				"model-viewer.js",
+				"model-viewer-dynsize.js"
+			]
+		}
+	},
+	"MediaHandlers": {
+		"model/gltf-binary": "MediaWiki\\Extension\\GLTFHandler\\GLTFHandler",
+		"model/gltf+json": "MediaWiki\\Extension\\GLTFHandler\\GLTFHandler"
+	},
+	"FileExtensions": [
+		"glb", "gltf"
+	],
+	"ExtensionMessagesFiles": {
+		"GLTFHandlerMagic": "i18n/GLTFHandler.i18n.magic.php"
+	},
+	"manifest_version": 2
+}
