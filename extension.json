@@ -33,10 +33,7 @@
 			"dependencies": [],
 			"styles": [],
 			"messages": [],
-			"scripts": [
-				"model-viewer.js",
-				"model-viewer-dynsize.js"
-			]
+			"packageFiles": ["model-viewer.cjs.js", "model-viewer-dynsize.js"]
 		}
 	},
 	"MediaHandlers": {

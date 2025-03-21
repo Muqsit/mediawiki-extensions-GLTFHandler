@@ -8,7 +8,6 @@ use function count;
 use function explode;
 use function implode;
 use function in_array;
-use function is_numeric;
 use function max;
 
 class GLTFHandler extends \MediaHandler {
@@ -75,10 +74,8 @@ class GLTFHandler extends \MediaHandler {
 		return [
 			"img_width" => "width",
 			"gltfhandler_ar" => "ar",
+			"gltfhandler_camera_orbit" => "camera-orbit",
 			"gltfhandler_environment" => "environment",
-			"gltfhandler_ox" => "ox",
-			"gltfhandler_oy" => "oy",
-			"gltfhandler_or" => "or",
 			"gltfhandler_poster" => "poster",
 			"gltfhandler_skybox" => "skybox"
 		];
@@ -93,19 +90,7 @@ class GLTFHandler extends \MediaHandler {
 		if(in_array( $name, [ "width", "height"], true )){
 			return $value > 0;
 		}
-		if(in_array( $name, [ "ox", "oy", "or"], true )){
-			return true;
-		}
-		if($name === "ar"){
-			return true;
-		}
-		if($name === "poster"){
-			return true;
-		}
-		if($name === "skybox"){
-			return true;
-		}
-		if($name === "environment"){
+		if(in_array($name, ["ar", "camera-orbit", "poster", "skybox", "environment"], true)){
 			return true;
 		}
 		return true;
@@ -118,9 +103,7 @@ class GLTFHandler extends \MediaHandler {
 	public function makeParamString( $params ) {
 		return implode("-", [
 			$params["width"] ?? "",
-			$params["ox"] ?? "",
-			$params["oy"] ?? "",
-			$params["or"] ?? "",
+			$params["camera-orbit"] ?? "",
 			isset($params["ar"]) ? "true" : "false",
 			$params["poster"] ?? "",
 			$params["skybox"] ?? "",
@@ -137,7 +120,7 @@ class GLTFHandler extends \MediaHandler {
 		if(count($values) !== 7){
 			return false;
 		}
-		$params = array_combine(["width", "ox", "oy", "or", "ar", "poster", "skybox", "environment"], $values);
+		$params = array_combine(["width", "camera-orbit", "ar", "poster", "skybox", "environment"], $values);
 		$params = array_filter($params, function($x){ return $x !== ""; });
 		$params["ar"] = $params["ar"] === "true";
 		return $params;

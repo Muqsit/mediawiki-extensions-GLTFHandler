@@ -36,6 +36,7 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 	public function toHtml( $options = [] ) {
 		$attributes = ["shadow-intensity" => "1", "camera-controls" => true, "touch-action" => "pan-y"];
 		$attributes["ar"] = isset($this->pParams["ar"]);
+		$attributes["camera-orbit"] = $this->pParams["camera-orbit"] ?? null;
 		$attributes["loading"] = "eager";
 		$attributes["src"] = $this->pSourceFileURL;
 
@@ -67,20 +68,6 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 			if($environment !== false && $environment->isLocal() && $environment->canRender()){
 				$attributes["environment-image"] = $environment->getUrl();
 			}
-		}
-
-		if(isset($this->pParams["ox"]) || isset($this->pParams["oy"]) || isset($this->page["or"])){
-			$ox = (float) ($this->pParams["ox"] ?? 0.0);
-			$oy = (float) ($this->pParams["oy"] ?? 0.0);
-			if(isset($this->pParams["or"])){
-				$or = $this->pParams["or"];
-				if($or !== "" && ctype_digit($or[strlen($or) - 1])){
-					$or .= "m";
-				}
-			}else{
-				$or = "";
-			}
-			$attributes["camera-orbit"] = "{$ox}deg {$oy}deg {$or}";
 		}
 
 		// attributes for dynamic resizing
