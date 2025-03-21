@@ -19,8 +19,8 @@ class GLTFHandler extends \MediaHandler {
 	 * @return array
 	 */
 	public function getSizeAndMetadata($state, $path){
-		$reader = new GLTFParser($path);
-		$dims = $reader->computeModelDimensions();
+		$parser = new GLTFParser($path);
+		$dims = $parser->computeModelDimensions();
 
 		$width = max($dims[0], $dims[2]);
 		$height = $dims[1];
@@ -35,7 +35,7 @@ class GLTFHandler extends \MediaHandler {
 
 		$width *= 400;
 		$height *= 400;
-		return ["width" => $width, "height" => $height, "metadata" => $reader->getMetadata()];
+		return ["width" => $width, "height" => $height, "metadata" => $parser->getMetadata()];
 	}
 
 	/**
