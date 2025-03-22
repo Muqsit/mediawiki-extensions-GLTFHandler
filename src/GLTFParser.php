@@ -26,6 +26,12 @@ final class GLTFParser{
 	public const CHUNK_JSON = 0x4E4F534A;
 	public const CHUNK_BIN = 0x004E4942;
 
+	/**
+	 * Infer file format (GLTF vs. GLB) by reading the first 4 bytes from the file.
+	 *
+	 * @param string $path
+	 * @return bool whether file is binary (.glb)
+	 */
 	public static function inferBinary(string $path) : bool{
 		$resource = fopen($path, "rb");
 		try{
@@ -42,6 +48,12 @@ final class GLTFParser{
 	public int $length;
 	public array $properties;
 
+	/**
+	 * Parses the structure of a GLB or GLTF file.
+	 *
+	 * @param string $path path to a GLB or GLTF file
+	 * @param bool|null $binary whether the file type is binary (GLB), or null if the parser should infer the type
+	 */
 	public function __construct(string $path, ?bool $binary = null){
 		$binary = $binary ?? self::inferBinary($path);
 		if($binary){
@@ -77,8 +89,10 @@ final class GLTFParser{
 	}
 
 	/**
-	 * @param resource $resource
-	 * @return array
+	 * Reads a GLB header and returns version and length. 'Magic' is not returned, but is instead validated.
+	 *
+	 * @param resource $resource a file pointer to read the header from
+	 * @return array{int, int} a tuple of version and length
 	 */
 	private function readHeaderGlb($resource) : array{
 		$header = fread($resource, 12);
@@ -93,9 +107,11 @@ final class GLTFParser{
 	}
 
 	/**
-	 * @param resource $resource
-	 * @param int $expected_type
-	 * @return array|string|null
+	 * Reads a GLB chunk from the current file position.
+	 *
+	 * @param resource $resource a file pointer to read the chunk from
+	 * @param self::CHUNK_* $expected_type an expected GLTF chunk type
+	 * @return array|string|null chunk data (array for JSON chunks, string for binary chunks, null for unknown chunks)
 	 */
 	public function readChunkGlb($resource, int $expected_type) : array|string|null{
 		$structure = fread($resource, 8);
@@ -113,10 +129,19 @@ final class GLTFParser{
 		if($type === self::CHUNK_BIN){
 			return fread($resource, $length);
 		}
+		// do not read into memory chunk of unknown types, only move offset to the end of chunk.
+		// according to gltf spec: Client implementations MUST ignore chunks with unknown types to enable glTF
+		// extensions to reference additional chunks with new types following the first two chunks.
 		fseek($resource, $length, SEEK_CUR);
 		return null;
 	}
 
+	/**
+	 * Computes length of X, Y, and Z planes of the model.
+	 *
+	 * @return array{float, float, float}|null a tuple of lengths of X, Y, and Z planes respectively, or null if the
+	 * model dimensions could not be inferred.
+	 */
 	public function computeModelDimensions() : ?array{
 		$values = [];
 		foreach($this->properties["nodes"] as $node){
@@ -161,6 +186,12 @@ final class GLTFParser{
 		return [max($x) - min($x), max($y) - min($y), max($z) - min($z)];
 	}
 
+	/**
+	 * Returns a selected set of metadata properties from the parsed GLTF file.
+	 * TODO: Standardization - return necessary metadata instead of cherry-picking the properties.
+	 *
+	 * @return array{Copyright?: string, Generator?: string, Version: int}
+	 */
 	public function getMetadata() : array{
 		$metadata = [];
 		if(isset($this->properties["asset"]["copyright"])){
