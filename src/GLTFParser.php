@@ -8,18 +8,25 @@ use function array_column;
 use function array_diff_key;
 use function array_fill;
 use function array_keys;
+use function array_map;
 use function array_push;
 use function array_slice;
+use function base64_decode;
 use function bin2hex;
 use function count;
+use function dirname;
 use function fclose;
+use function feof;
+use function file_exists;
 use function file_get_contents;
 use function fopen;
 use function fread;
 use function fseek;
 use function gettype;
 use function implode;
+use function in_array;
 use function is_array;
+use function is_file;
 use function is_float;
 use function is_infinite;
 use function is_int;
@@ -27,16 +34,39 @@ use function is_nan;
 use function json_decode;
 use function max;
 use function min;
+use function pathinfo;
+use function str_starts_with;
 use function strlen;
+use function strpos;
+use function substr;
 use function unpack;
+use function urldecode;
+use const DIRECTORY_SEPARATOR;
 use const JSON_THROW_ON_ERROR;
+use const PATHINFO_EXTENSION;
 use const SEEK_CUR;
 
 final class GLTFParser{
 
+	public const ALLOWED_URI_EXTENSIONS = ["bin", "glbin", "glbuf", "png", "jpg", "jpeg"];
+
 	public const HEADER_MAGIC = 0x46546C67;
 	public const CHUNK_JSON = 0x4E4F534A;
 	public const CHUNK_BIN = 0x004E4942;
+
+	/** @var int raw buffer byte array (i.e., string) */
+	public const BUFFER_RESOLVED = 0;
+	/** @var int unresolved buffer representing "uri" to be resolved */
+	public const BUFFER_UNRESOLVED = 1;
+
+	/** @var int whether the file type is binary (GLB) */
+	public const FLAG_TYPE_GLB = 1 << 0;
+	/** @var int whether the file type is JSON (GLTF) */
+	public const FLAG_TYPE_GLTF = 1 << 0;
+	/** @var int whether to resolve buffers pointing a local filesystem file */
+	public const FLAG_RESOLVE_LOCAL_BUFFERS = 1 << 1;
+	/** @var int whether to resolve buffers pointing a remote URI */
+	public const FLAG_RESOLVE_REMOTE_BUFFERS = 1 << 2;
 
 	/**
 	 * Infer file format (GLTF vs. GLB) by reading the first 4 bytes from the file.
@@ -115,48 +145,74 @@ final class GLTFParser{
 		}
 	}
 
+	public string $directory;
 	public bool $binary;
 	public int $version;
 	public int $length;
 	public array $properties;
 
+	/** @var list<array{self::BUFFER_RESOLVED|self::BUFFER_UNRESOLVED, string}> */
+	public array $buffers;
+
 	/**
 	 * Parses the structure of a GLB or GLTF file.
 	 *
 	 * @param string $path path to a GLB or GLTF file
-	 * @param bool|null $binary whether the file type is binary (GLB), or null if the parser should infer the type
+	 * @param self::FLAG_* $flags
 	 */
-	public function __construct(string $path, ?bool $binary = null){
-		$binary = $binary ?? self::inferBinary($path);
+	public function __construct(string $path, int $flags = 0){
+		$directory = dirname($path); // needed for buffer resolution (when URIs are encountered)
+		$binary = match(true){
+			($flags & self::FLAG_TYPE_GLB) > 0 => true,
+			($flags & self::FLAG_TYPE_GLTF) > 0 => false,
+			default => self::inferBinary($path)
+		};
 		if($binary){
 			$resource = fopen($path, "rb");
 			$resource !== false || throw new InvalidArgumentException("Failed to open file {$path}");
 			try{
 				[$version, $length] = $this->readHeaderGlb($resource);
 				$properties = $this->readChunkGlb($resource, self::CHUNK_JSON);
+				if(feof($resource)){
+					$buffers = [];
+				}else{
+					// a GLB file has only one buffer entry
+					$buffers = [[self::BUFFER_RESOLVED, $this->readChunkGlb($resource, self::CHUNK_BIN)]];
+				}
 			}finally{
 				fclose($resource);
 			}
-			// chunk1 (which may or may not exist) is encoded data representing geometry, animation key frames, skins,
-			// and images. we don't really need to read this data as we are concerned only with the metadata.
-			// $chunk1 = $this->readChunk(self::CHUNK_BIN);
 		}else{
 			$contents = file_get_contents($path);
 			$length = strlen($contents);
 			$contents = self::decodeJsonArray($contents);
 			$version = (int) $contents["asset"]["version"];
 			$properties = $contents;
+			$buffers = null;
 		}
 		if($version !== 2){
 			// TODO: check what the difference between version 1 and version 2 is.
 			// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
 			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2");
 		}
-		$this->validateProperties($properties);
+		$this->validateProperties($properties, $binary);
+
+		$buffers ??= array_map(static fn($e) => [self::BUFFER_UNRESOLVED, $e["uri"]], $properties["buffers"]);
+		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_BUFFERS) > 0 ? $this->directory : null;
+		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_BUFFERS) > 0;
+		foreach($buffers as $index => [$status, $uri]){
+			if($status === self::BUFFER_UNRESOLVED){
+				$buffer = $this->resolveBuffer($uri, $relative_dir, $resolve_remote);
+				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [$status, $uri];
+			}
+		}
+
+		$this->directory = $directory;
 		$this->binary = $binary;
 		$this->version = $version;
 		$this->length = $length;
 		$this->properties = $properties;
+		$this->buffers = $buffers;
 	}
 
 	/**
@@ -203,7 +259,7 @@ final class GLTFParser{
 		return null;
 	}
 
-	public function validateProperties(array $properties) : void{
+	public function validateProperties(array $properties, bool $binary) : void{
 		$required = [
 			"accessors" => [],
 			"asset" => ["version" => ""]
@@ -278,7 +334,10 @@ final class GLTFParser{
 
 		// validate buffers
 		$required_buffers = ["byteLength" => 0];
-		$optional_buffers = ["uri" => "", "name" => "", "extensions" => [], "extras" => []];
+		$optional_buffers = ["name" => "", "extensions" => [], "extras" => []];
+		if(!$binary){
+			$required_buffers["uri"] = "";
+		}
 		if(isset($properties["buffers"])){
 			foreach($properties["buffers"] as $entry){
 				self::validateJsonSchema($entry, $required_buffers);
@@ -302,6 +361,50 @@ final class GLTFParser{
 				!isset($entry["target"]) || $entry["target"] === 34962 || $entry["target"] === 34963 || throw new InvalidArgumentException("Expected 'target' to be one of: 34962, 34963, got {$entry["target"]}");
 			}
 		}
+	}
+
+	/**
+	 * Resolves a buffer URI based on the given options ($relative_directory, $resolve_remote), or returns null if the
+	 * operation is disallowed by the options.
+	 *
+	 * @param string $uri the URI to resolve
+	 * @param string|null $base_directory the base directory for relative URI paths
+	 * @param bool $resolve_remote whether to resolve remote URIs (e.g., http://, https://, etc.)
+	 * @return string|null the returned raw buffer (byte array), or null if the options disallow this resolution
+	 */
+	public function resolveBuffer(string $uri, ?string $base_directory, bool $resolve_remote) : ?string{
+		if(str_starts_with($uri, "data:")){
+			$token_end = strpos($uri, ",", 5);
+			if($token_end === false || $token_end > 64){
+				$token_end = 64;
+			}
+			$uri_type = substr($uri, 5, $token_end - 5);
+			$uri_data = substr($uri, $token_end + 1);
+			return match($uri_type){
+				"application/octet-stream" => urldecode($uri_data),
+				"application/octet-stream;base64", "application/gltf-buffer;base64" => base64_decode($uri_data),
+				default => throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}")
+			};
+		}
+		if(filter_var($uri, FILTER_VALIDATE_URL)){
+			if(!$resolve_remote){
+				return null;
+			}
+			// TODO: Validate return type, HTTP response code
+			$data = file_get_contents($uri);
+			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}");
+			return $data;
+		}
+		if($base_directory === null){
+			return null;
+		}
+		$path = $base_directory . DIRECTORY_SEPARATOR . urldecode($uri);
+		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}");
+		$ext = pathinfo($path, PATHINFO_EXTENSION);
+		in_array($ext, self::ALLOWED_URI_EXTENSIONS, true) || throw new InvalidArgumentException("Expected file extension to be one of: " . implode(", ", self::ALLOWED_URI_EXTENSIONS) . ", got {$ext}");
+		$data = file_get_contents($path);
+		$data !== false || throw new InvalidArgumentException("Local resolution failed for uri: {$uri}");
+		return $data;
 	}
 
 	/**
