@@ -95,7 +95,7 @@ final class GLTFParser{
 		}else{
 			$contents = file_get_contents($path);
 			$length = strlen($contents);
-			$contents = self::decodeJsonArray($contents, true, 512, JSON_THROW_ON_ERROR);
+			$contents = self::decodeJsonArray($contents);
 			$version = (int) $contents["asset"]["version"];
 			$properties = $contents;
 		}
@@ -145,7 +145,7 @@ final class GLTFParser{
 		}
 		if($type === self::CHUNK_JSON){
 			$data = fread($resource, $length);
-			$data = self::decodeJsonArray($data, true, 512, JSON_THROW_ON_ERROR);
+			$data = self::decodeJsonArray($data);
 			return $data;
 		}
 		if($type === self::CHUNK_BIN){
