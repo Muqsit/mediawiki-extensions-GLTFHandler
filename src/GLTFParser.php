@@ -62,11 +62,11 @@ final class GLTFParser{
 	/** @var int whether the file type is binary (GLB) */
 	public const FLAG_TYPE_GLB = 1 << 0;
 	/** @var int whether the file type is JSON (GLTF) */
-	public const FLAG_TYPE_GLTF = 1 << 0;
+	public const FLAG_TYPE_GLTF = 1 << 1;
 	/** @var int whether to resolve buffers pointing a local filesystem file */
-	public const FLAG_RESOLVE_LOCAL_BUFFERS = 1 << 1;
+	public const FLAG_RESOLVE_LOCAL_BUFFERS = 1 << 2;
 	/** @var int whether to resolve buffers pointing a remote URI */
-	public const FLAG_RESOLVE_REMOTE_BUFFERS = 1 << 2;
+	public const FLAG_RESOLVE_REMOTE_BUFFERS = 1 << 3;
 
 	/**
 	 * Infer file format (GLTF vs. GLB) by reading the first 4 bytes from the file.
