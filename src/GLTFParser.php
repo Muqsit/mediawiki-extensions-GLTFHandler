@@ -3,6 +3,7 @@
 namespace MediaWiki\Extension\GLTFHandler;
 
 use InvalidArgumentException;
+use JsonException;
 use function array_column;
 use function array_push;
 use function bin2hex;
@@ -12,6 +13,7 @@ use function file_get_contents;
 use function fopen;
 use function fread;
 use function fseek;
+use function gettype;
 use function json_decode;
 use function max;
 use function min;
@@ -41,6 +43,26 @@ final class GLTFParser{
 		}
 		$type = unpack("V", $structure)[1];
 		return $type === self::HEADER_MAGIC;
+	}
+
+	/**
+	 * Returns validated array from JSON string.
+	 *
+	 * @param string $data a JSON string
+	 * @return array
+	 */
+	private static function decodeJsonArray(string $data) : array{
+		try{
+			// GLTF nodes are indeed a tree structure but are represented as flat lists. A depth limit of 8 instead of
+			// PHP's default 512 limit should be well more than sufficient for most if not all valid GLTF files.
+			$result = json_decode($data, true, 8, JSON_THROW_ON_ERROR);
+		}catch(JsonException $e){
+			throw new InvalidArgumentException("Failed to decode JSON data: {$e->getMessage()}", $e->getCode(), $e);
+		}
+		if(!is_array($result)){
+			throw new InvalidArgumentException("Expected JSON data to be of type array, got " . gettype($result));
+		}
+		return $result;
 	}
 
 	public bool $binary;
@@ -73,7 +95,7 @@ final class GLTFParser{
 		}else{
 			$contents = file_get_contents($path);
 			$length = strlen($contents);
-			$contents = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+			$contents = self::decodeJsonArray($contents, true, 512, JSON_THROW_ON_ERROR);
 			$version = (int) $contents["asset"]["version"];
 			$properties = $contents;
 		}
@@ -123,7 +145,7 @@ final class GLTFParser{
 		}
 		if($type === self::CHUNK_JSON){
 			$data = fread($resource, $length);
-			$data = json_decode($data, true, 512, JSON_THROW_ON_ERROR);
+			$data = self::decodeJsonArray($data, true, 512, JSON_THROW_ON_ERROR);
 			return $data;
 		}
 		if($type === self::CHUNK_BIN){
