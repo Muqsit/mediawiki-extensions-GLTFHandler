@@ -64,9 +64,9 @@ final class GLTFParser{
 	/** @var int whether the file type is JSON (GLTF) */
 	public const FLAG_TYPE_GLTF = 1 << 1;
 	/** @var int whether to resolve buffers pointing a local filesystem file */
-	public const FLAG_RESOLVE_LOCAL_BUFFERS = 1 << 2;
+	public const FLAG_RESOLVE_LOCAL_URI = 1 << 2;
 	/** @var int whether to resolve buffers pointing a remote URI */
-	public const FLAG_RESOLVE_REMOTE_BUFFERS = 1 << 3;
+	public const FLAG_RESOLVE_REMOTE_URI = 1 << 3;
 
 	/**
 	 * Infer file format (GLTF vs. GLB) by reading the first 4 bytes from the file.
@@ -198,11 +198,11 @@ final class GLTFParser{
 		$this->validateProperties($properties, $binary);
 
 		$buffers ??= array_map(static fn($e) => [self::BUFFER_UNRESOLVED, $e["uri"]], $properties["buffers"]);
-		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_BUFFERS) > 0 ? $this->directory : null;
-		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_BUFFERS) > 0;
+		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $this->directory : null;
+		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
 		foreach($buffers as $index => [$status, $uri]){
 			if($status === self::BUFFER_UNRESOLVED){
-				$buffer = $this->resolveBuffer($uri, $relative_dir, $resolve_remote);
+				$buffer = $this->resolveURI($uri, $relative_dir, $resolve_remote);
 				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [$status, $uri];
 			}
 		}
@@ -372,7 +372,7 @@ final class GLTFParser{
 	 * @param bool $resolve_remote whether to resolve remote URIs (e.g., http://, https://, etc.)
 	 * @return string|null the returned raw buffer (byte array), or null if the options disallow this resolution
 	 */
-	public function resolveBuffer(string $uri, ?string $base_directory, bool $resolve_remote) : ?string{
+	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote) : ?string{
 		if(str_starts_with($uri, "data:")){
 			$token_end = strpos($uri, ",", 5);
 			if($token_end === false || $token_end > 64){
