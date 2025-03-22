@@ -380,11 +380,15 @@ final class GLTFParser{
 			}
 			$uri_type = substr($uri, 5, $token_end - 5);
 			$uri_data = substr($uri, $token_end + 1);
-			return match($uri_type){
-				"application/octet-stream" => urldecode($uri_data),
-				"application/octet-stream;base64", "application/gltf-buffer;base64" => base64_decode($uri_data),
-				default => throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}")
-			};
+			if($uri_type === "application/octet-stream"){
+				return urldecode($uri_data);
+			}
+			if($uri_type === "application/octet-stream;base64" || $uri_type === "application/gltf-buffer;base64"){
+				$result = base64_decode($uri_type);
+				$result !== false || throw new InvalidArgumentException("Improperly encoded base64 data supplied for URI type {$uri_type}");
+				return $result;
+			}
+			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}")
 		}
 		if(filter_var($uri, FILTER_VALIDATE_URL)){
 			if(!$resolve_remote){
