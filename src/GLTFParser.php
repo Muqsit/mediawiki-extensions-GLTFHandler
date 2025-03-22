@@ -8,7 +8,6 @@ use function array_column;
 use function array_diff_key;
 use function array_fill;
 use function array_keys;
-use function array_map;
 use function array_push;
 use function array_slice;
 use function base64_decode;
@@ -188,26 +187,14 @@ final class GLTFParser{
 			$contents = self::decodeJsonArray($contents);
 			$version = (int) $contents["asset"]["version"];
 			$properties = $contents;
-			$buffers = null;
+			$buffers = [];
 		}
 		if($version !== 2){
 			// TODO: check what the difference between version 1 and version 2 is.
 			// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
 			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2");
 		}
-		$this->validateProperties($properties, $binary);
-
-		$buffers ??= array_map(static fn($e) => [self::BUFFER_UNRESOLVED, [$e["uri"], $e["byteLength"]]], $properties["buffers"]);
-		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $this->directory : null;
-		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
-		foreach($buffers as $index => [$status, $entry]){
-			if($status === self::BUFFER_UNRESOLVED){
-				[$uri, $length] = $entry;
-				$buffer = $this->resolveURI($uri, $relative_dir, $resolve_remote, $length);
-				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [$status, $entry];
-			}
-		}
-
+		[$buffers] = $this->processProperties($properties, $binary, $buffers, $flags);
 		$this->directory = $directory;
 		$this->binary = $binary;
 		$this->version = $version;
@@ -260,7 +247,14 @@ final class GLTFParser{
 		return null;
 	}
 
-	public function validateProperties(array $properties, bool $binary) : void{
+	/**
+	 * @param array $properties
+	 * @param bool $binary
+	 * @param list<array{self::BUFFER_RESOLVED, string}|array{self::BUFFER_UNRESOLVED, array{string, int}}> $buffers
+	 * @param self::FLAG_* $flags
+	 * @return array
+	 */
+	public function processProperties(array $properties, bool $binary, array $buffers = [], int $flags = 0) : array{
 		$required = [
 			"accessors" => [],
 			"asset" => ["version" => ""]
@@ -347,6 +341,16 @@ final class GLTFParser{
 			}
 		}
 
+		if(!$binary){
+			count($buffers) === 0 || throw new InvalidArgumentException("Supplied buffer array must be empty for non-binary specification, got " . count($buffers) . " entries");
+			$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $this->directory : null;
+			$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
+			foreach($properties["buffers"] as $index => ["uri" => $uri, "byteLength" => $length]){
+				$buffer = $this->resolveURI($uri, $relative_dir, $resolve_remote, $length);
+				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [self::BUFFER_UNRESOLVED, [$uri, $length]];
+			}
+		}
+
 		// validate bufferViews
 		$required_buffer_views = ["buffer" => 0, "byteLength" => 0];
 		$optional_buffer_views = ["byteOffset" => 0, "byteStride" => 0, "target" => 0, "name" => "", "extensions" => [], "extras" => []];
@@ -362,6 +366,8 @@ final class GLTFParser{
 				!isset($entry["target"]) || $entry["target"] === 34962 || $entry["target"] === 34963 || throw new InvalidArgumentException("Expected 'target' to be one of: 34962, 34963, got {$entry["target"]}");
 			}
 		}
+
+		return $buffers;
 	}
 
 	/**
