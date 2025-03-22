@@ -365,7 +365,8 @@ final class GLTFParser{
 
 	/**
 	 * Resolves a buffer URI based on the given options ($relative_directory, $resolve_remote), or returns null if the
-	 * operation is disallowed by the options.
+	 * operation is disallowed by the options. Embedded URIs (i.e., data:application/octet-stream;base64,...) will
+	 * always be resolved.
 	 *
 	 * @param string $uri the URI to resolve
 	 * @param string|null $base_directory the base directory for relative URI paths
