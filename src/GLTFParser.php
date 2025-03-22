@@ -56,7 +56,7 @@ final class GLTFParser{
 
 	/** @var int raw buffer byte array (i.e., string) */
 	public const BUFFER_RESOLVED = 0;
-	/** @var int unresolved buffer representing "uri" to be resolved */
+	/** @var int unresolved buffer representing a tuple of [uri, byteLength] to be resolved */
 	public const BUFFER_UNRESOLVED = 1;
 
 	/** @var int whether the file type is binary (GLB) */
@@ -151,7 +151,7 @@ final class GLTFParser{
 	public int $length;
 	public array $properties;
 
-	/** @var list<array{self::BUFFER_RESOLVED|self::BUFFER_UNRESOLVED, string}> */
+	/** @var list<array{self::BUFFER_RESOLVED|self::BUFFER_UNRESOLVED, array{string, int}}> */
 	public array $buffers;
 
 	/**
@@ -197,13 +197,14 @@ final class GLTFParser{
 		}
 		$this->validateProperties($properties, $binary);
 
-		$buffers ??= array_map(static fn($e) => [self::BUFFER_UNRESOLVED, $e["uri"]], $properties["buffers"]);
+		$buffers ??= array_map(static fn($e) => [self::BUFFER_UNRESOLVED, [$e["uri"], $e["byteLength"]]], $properties["buffers"]);
 		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $this->directory : null;
 		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
-		foreach($buffers as $index => [$status, $uri]){
+		foreach($buffers as $index => [$status, $entry]){
 			if($status === self::BUFFER_UNRESOLVED){
-				$buffer = $this->resolveURI($uri, $relative_dir, $resolve_remote);
-				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [$status, $uri];
+				[$uri, $length] = $entry;
+				$buffer = $this->resolveURI($uri, $relative_dir, $resolve_remote, $length);
+				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [$status, $entry];
 			}
 		}
 
@@ -371,9 +372,10 @@ final class GLTFParser{
 	 * @param string $uri the URI to resolve
 	 * @param string|null $base_directory the base directory for relative URI paths
 	 * @param bool $resolve_remote whether to resolve remote URIs (e.g., http://, https://, etc.)
+	 * @param int $length the length of bytes of the resolved buffer
 	 * @return string|null the returned raw buffer (byte array), or null if the options disallow this resolution
 	 */
-	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote) : ?string{
+	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, int $length) : ?string{
 		if(str_starts_with($uri, "data:")){
 			$token_end = strpos($uri, ",", 5);
 			if($token_end === false || $token_end > 64){
@@ -389,14 +391,14 @@ final class GLTFParser{
 				$result !== false || throw new InvalidArgumentException("Improperly encoded base64 data supplied for URI type {$uri_type}");
 				return $result;
 			}
-			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}")
+			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}");
 		}
 		if(filter_var($uri, FILTER_VALIDATE_URL)){
 			if(!$resolve_remote){
 				return null;
 			}
 			// TODO: Validate return type, HTTP response code
-			$data = file_get_contents($uri);
+			$data = file_get_contents($uri, length: $length);
 			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}");
 			return $data;
 		}
@@ -407,7 +409,7 @@ final class GLTFParser{
 		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}");
 		$ext = pathinfo($path, PATHINFO_EXTENSION);
 		in_array($ext, self::ALLOWED_URI_EXTENSIONS, true) || throw new InvalidArgumentException("Expected file extension to be one of: " . implode(", ", self::ALLOWED_URI_EXTENSIONS) . ", got {$ext}");
-		$data = file_get_contents($path);
+		$data = file_get_contents($path, length: $length);
 		$data !== false || throw new InvalidArgumentException("Local resolution failed for uri: {$uri}");
 		return $data;
 	}
