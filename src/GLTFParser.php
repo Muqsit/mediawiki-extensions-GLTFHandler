@@ -65,6 +65,11 @@ final class GLTFParser{
 			$version = (int) $contents["asset"]["version"];
 			$properties = $contents;
 		}
+		if($version !== 2){
+			// TODO: check what the difference between version 1 and version 2 is.
+			// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
+			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2");
+		}
 		$this->binary = $binary;
 		$this->version = $version;
 		$this->length = $length;
@@ -83,11 +88,6 @@ final class GLTFParser{
 		$length = $decoded["h3"];
 		if($magic !== self::HEADER_MAGIC){
 			throw new InvalidArgumentException("Improperly formatted GLB header: Magic has unexpected value: " . bin2hex($magic));
-		}
-		if($version !== 2){
-			// TODO: check what the difference between version 1 and version 2 is.
-			// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
-			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2");
 		}
 		return [$version, $length];
 	}
