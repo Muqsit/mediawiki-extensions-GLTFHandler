@@ -14,6 +14,7 @@ use function fopen;
 use function fread;
 use function fseek;
 use function gettype;
+use function is_array;
 use function json_decode;
 use function max;
 use function min;
@@ -59,9 +60,7 @@ final class GLTFParser{
 		}catch(JsonException $e){
 			throw new InvalidArgumentException("Failed to decode JSON data: {$e->getMessage()}", $e->getCode(), $e);
 		}
-		if(!is_array($result)){
-			throw new InvalidArgumentException("Expected JSON data to be of type array, got " . gettype($result));
-		}
+		is_array($result) || throw new InvalidArgumentException("Expected JSON data to be of type array, got " . gettype($result));
 		return $result;
 	}
 
@@ -80,9 +79,7 @@ final class GLTFParser{
 		$binary = $binary ?? self::inferBinary($path);
 		if($binary){
 			$resource = fopen($path, "rb");
-			if($resource === false){
-				throw new InvalidArgumentException("Failed to open file {$path}");
-			}
+			$resource !== false || throw new InvalidArgumentException("Failed to open file {$path}");
 			try{
 				[$version, $length] = $this->readHeaderGlb($resource);
 				$properties = $this->readChunkGlb($resource, self::CHUNK_JSON);
@@ -122,9 +119,7 @@ final class GLTFParser{
 		$magic = $decoded["h1"];
 		$version = $decoded["h2"];
 		$length = $decoded["h3"];
-		if($magic !== self::HEADER_MAGIC){
-			throw new InvalidArgumentException("Improperly formatted GLB header: Magic has unexpected value: " . bin2hex($magic));
-		}
+		$magic === self::HEADER_MAGIC || throw new InvalidArgumentException("Improperly formatted GLB header: Magic has unexpected value: " . bin2hex($magic));
 		return [$version, $length];
 	}
 
@@ -140,9 +135,7 @@ final class GLTFParser{
 		$decoded = unpack("V2s/", $structure);
 		$length = $decoded["s1"];
 		$type = $decoded["s2"];
-		if($type !== $expected_type){
-			throw new InvalidArgumentException("Unexpected chunk type ({$type}), expected {$expected_type}");
-		}
+		$type === $expected_type || throw new InvalidArgumentException("Unexpected chunk type ({$type}), expected {$expected_type}");
 		if($type === self::CHUNK_JSON){
 			$data = fread($resource, $length);
 			$data = self::decodeJsonArray($data);
