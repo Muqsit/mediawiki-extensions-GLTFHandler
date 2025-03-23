@@ -1,6 +1,6 @@
 <?php
 
-namespace MediaWiki\Extension\GLTFHandler;
+namespace MediaWiki\Extension\GLTFHandler\Parser;
 
 use InvalidArgumentException;
 use JsonException;

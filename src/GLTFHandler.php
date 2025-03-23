@@ -3,6 +3,7 @@
 namespace MediaWiki\Extension\GLTFHandler;
 
 use InvalidArgumentException;
+use MediaWiki\Extension\GLTFHandler\Parser\GLTFParser;
 use MediaWiki\Status\Status;
 use function array_combine;
 use function array_filter;
