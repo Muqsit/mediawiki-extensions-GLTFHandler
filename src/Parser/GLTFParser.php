@@ -22,6 +22,7 @@ use function file_get_contents;
 use function fopen;
 use function fread;
 use function fseek;
+use function getimagesizefromstring;
 use function gettype;
 use function implode;
 use function in_array;
@@ -31,11 +32,13 @@ use function is_float;
 use function is_infinite;
 use function is_int;
 use function is_nan;
-use function is_string;
 use function json_decode;
+use function json_encode;
 use function max;
 use function min;
+use function pack;
 use function pathinfo;
+use function str_repeat;
 use function str_starts_with;
 use function strlen;
 use function strpos;
@@ -180,6 +183,9 @@ final class GLTFParser{
 	/** @var list<GLTFBufferView> */
 	public array $buffer_views;
 
+	/** @var list<int|string> */
+	public array $image_buffers; // (int) index of buffer_views, or (string) raw image buffer
+
 	/** @var list<array{GLTFComponentType, int, int, list<int|float>}> */
 	public array $accessor_values;
 
@@ -228,7 +234,7 @@ final class GLTFParser{
 		$version === 2 || throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2", self::ERR_UNSUPPORTED_VERSION);
 
 		[$buffers, $buffer_views] = $this->processBuffers($properties, $directory, $binary, $buffers, $flags);
-		[$accessor_values] = $this->processProperties($properties, $directory, $buffers, $buffer_views, $flags);
+		[$accessor_values, $image_buffers] = $this->processProperties($properties, $directory, $buffers, $buffer_views, $flags);
 
 		$this->directory = $directory;
 		$this->binary = $binary;
@@ -238,6 +244,7 @@ final class GLTFParser{
 		$this->buffers = $buffers;
 		$this->buffer_views = $buffer_views;
 		$this->accessor_values = $accessor_values;
+		$this->image_buffers = $image_buffers;
 	}
 
 	/**
@@ -529,11 +536,9 @@ final class GLTFParser{
 					$index = $entry["bufferView"];
 					isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$index}", self::ERR_INVALID_SCHEMA);
 					$view = $buffer_views[$index];
-					if(is_string($buffers[$view->buffer])){
-						$image_buffers[] = substr($buffers[$view->buffer]->value, $view->byte_offset, $view->byte_length);
-					}else{
-						$image_buffers[] = [$view, null];
-					}
+					isset($buffers[$view->buffer]) || throw new InvalidArgumentException("Image buffer view at index {$index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count($buffers) . ")");
+					$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Image points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
+					$image_buffers[] = $index;
 				}else{
 					$image_buffers[] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote);
 				}
@@ -713,5 +718,98 @@ final class GLTFParser{
 		}
 		$metadata["Version"] = $this->version;
 		return $metadata;
+	}
+
+	/**
+	 * Returns a raw GLB bytes representation of the glTF file. This is useful when generating a 'portable' glTF file is
+	 * necessary. Resolved remote and local filesystem buffers and images are embedded directly.
+	 *
+	 * Example usage:
+	 *   // convert GLTF to GLB (GLBs are always self-contained / embedded)
+	 *   $parser = new GLTFParser("model2.gltf");
+	 *   $contents = $parser->exportBinary();
+	 *   file_put_contents("model2.glb", $contents);
+	 *
+	 * @return string
+	 */
+	public function exportBinary() : string{
+		foreach($this->buffers as $index => $buffer){
+			$buffer->value ?? throw new InvalidArgumentException("Buffer at index {$index} is unresolved (" . substr($buffer->uri, 0, 64) . ")");
+		}
+
+		// process properties
+		$properties = $this->properties;
+		if(isset($properties["images"])){
+			foreach($properties["images"] as $index => $property){
+				unset($properties["images"][$index]["uri"]);
+			}
+		}
+
+		// process buffer
+		// -- collect all buffers and concatenate into a single blob.
+		// -- offset corresponding buffer views and image buffers
+		$buffers = [];
+		$offset = 0;
+		foreach($this->buffers as $ib => $buffer){
+			$buffers[] = $buffer->value;
+			$byte_offset = $offset;
+			foreach($properties["bufferViews"] as $iv => $view){
+				if($ib === 0 || $view["buffer"] !== $ib){
+					continue;
+				}
+				$view["buffer"] = 0;
+				$view["byteOffset"] ??= 0;
+				$view["byteOffset"] += $byte_offset;
+				$properties["bufferViews"][$iv] = $view;
+			}
+			$offset += strlen($buffer->value);
+		}
+
+		$iv = count($this->buffer_views);
+		foreach($this->image_buffers as $ib => $buffer){
+			if(is_int($buffer)){
+				continue; // we already translated buffer views
+			}
+
+			// introduce a new buffer view referencing the position of this image
+			// we need to ensure length of buffer is a multiple of 4 per glTF spec
+			// so we pad it with zero bytes
+			$buffer .= str_repeat("\0", 4 - (strlen($buffer) % 4));
+			$buffers[] = $buffer;
+			$properties["images"][$ib]["bufferView"] = $iv;
+			if(!isset($properties["images"][$ib]["mimeType"])){
+				$image_size = getimagesizefromstring($buffer);
+				($image_size !== false && isset($image_size["mime"])) || throw new InvalidArgumentException("Failed to retrieve mime for image at index {$ib}");
+				$properties["images"][$ib]["mimeType"] = $image_size["mime"];
+			}
+			$properties["bufferViews"][$iv] = ["buffer" => 0, "byteOffset" => $offset, "byteLength" => strlen($buffer)];
+			$iv++;
+			$offset += strlen($buffer);
+		}
+
+		if(count($buffers) > 0){
+			$chunk1 = implode($buffers);
+			$properties["buffers"] = [["byteLength" => strlen($chunk1)]];
+		}else{
+			$chunk1 = null;
+			unset($properties["buffers"]);
+		}
+
+		try{
+			$chunk0 = json_encode($properties, JSON_THROW_ON_ERROR);
+		}catch(JsonException $e){
+			throw new InvalidArgumentException("Failed to encode chunk0: {$e->getMessage()}", 0, $e);
+		}
+		$data = [];
+		$data[] = pack("V*", strlen($chunk0), self::CHUNK_JSON);
+		$data[] = $chunk0;
+		if($chunk1 !== null){
+			$chunk1 = implode($buffers);
+			$data[] = pack("V*", strlen($chunk1), self::CHUNK_BIN);
+			$data[] = $chunk1;
+		}
+		$contents = implode($data);
+		// write header
+		return pack("V*", self::HEADER_MAGIC, $this->version, strlen($contents) + 12) . $contents;
 	}
 }
