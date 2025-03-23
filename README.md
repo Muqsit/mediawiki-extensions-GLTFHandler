@@ -6,7 +6,7 @@ your environment using augmented reality (on supported devices).
 ## Features
 - Support .gltf and .glb files
 - Allow custom output options for model-viewer
-- Calculate model bounding box to reduce whitespace
+- Calculate model bounding box to properly size output canvas
 - Use [google/model-viewer](https://github.com/google/model-viewer) library to render 3D models, which supports all evergreen desktop and mobile browsers—Chrome, Firefox, Safari, and Edge.
 
 ## Installation
