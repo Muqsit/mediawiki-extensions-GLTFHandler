@@ -5,12 +5,11 @@ namespace MediaWiki\Extension\GLTFHandler\Parser;
 use InvalidArgumentException;
 use JsonException;
 use function array_column;
-use function array_combine;
 use function array_diff_key;
 use function array_fill;
 use function array_keys;
-use function array_push;
 use function array_slice;
+use function array_splice;
 use function array_values;
 use function base64_decode;
 use function bin2hex;
@@ -51,6 +50,16 @@ use const SEEK_CUR;
 final class GLTFParser{
 
 	public const ALLOWED_URI_EXTENSIONS = ["bin", "glbin", "glbuf", "png", "jpg", "jpeg"];
+
+	public const ACCESSOR_SIZES = [
+		"SCALAR" => 1,
+		"VEC2" => 2,
+		"VEC3" => 3,
+		"VEC4" => 4,
+		"MAT2" => 2 * 2,
+		"MAT3" => 3 * 3,
+		"MAT4" => 4 * 4
+	];
 
 	/** @var int pertains to glTF header - this value is same as unpack("V", "glTF")[1] */
 	public const HEADER_MAGIC = 0x46546C67;
@@ -171,6 +180,9 @@ final class GLTFParser{
 	/** @var list<GLTFBufferView> */
 	public array $buffer_views;
 
+	/** @var list<array{GLTFComponentType, int, int, list<int|float>}> */
+	public array $accessor_values;
+
 	/**
 	 * Parses the structure of a GLB or GLTF file.
 	 *
@@ -216,7 +228,7 @@ final class GLTFParser{
 		$version === 2 || throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2", self::ERR_UNSUPPORTED_VERSION);
 
 		[$buffers, $buffer_views] = $this->processBuffers($properties, $directory, $binary, $buffers, $flags);
-		$this->processProperties($properties, $directory, $buffers, $buffer_views, $flags);
+		[$accessor_values] = $this->processProperties($properties, $directory, $buffers, $buffer_views, $flags);
 
 		$this->directory = $directory;
 		$this->binary = $binary;
@@ -225,6 +237,7 @@ final class GLTFParser{
 		$this->properties = $properties;
 		$this->buffers = $buffers;
 		$this->buffer_views = $buffer_views;
+		$this->accessor_values = $accessor_values;
 	}
 
 	/**
@@ -361,6 +374,7 @@ final class GLTFParser{
 		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
 
 		// validate accessors
+		$accessor_values = [];
 		$required_accessors = ["componentType" => 0, "count" => 0, "type" => ""];
 		$optional_accessors = [
 			"bufferView" => 0, "byteOffset" => 0, "normalized" => false, "name" => "", "min" => [], "max" => [],
@@ -383,16 +397,7 @@ final class GLTFParser{
 			if(isset($entry["normalized"]) && $entry["normalized"] && in_array($component_type->code, [GLTFComponentType::FLOAT, GLTFComponentType::UNSIGNED_INT], true)){
 				throw new InvalidArgumentException("Expected 'normalized' to be false when component type is {$component_type->name}", self::ERR_INVALID_SCHEMA);
 			}
-			$component_count = match($entry["type"]){
-				"SCALAR" => 1,
-				"VEC2" => 2,
-				"VEC3" => 3,
-				"VEC4" => 4,
-				"MAT2" => 2 * 2,
-				"MAT3" => 3 * 3,
-				"MAT4" => 4 * 4,
-				default => throw new InvalidArgumentException("Expected accessor type to be one of: SCALAR, VEC2, VEC3, VEC4, MAT2, MAT3, MAT4, got '{$entry["type"]}'", self::ERR_INVALID_SCHEMA)
-			};
+			$component_count = self::ACCESSOR_SIZES[$entry["type"]] ?? throw new InvalidArgumentException("Expected accessor type to be one of: " . implode(", ", array_keys(self::ACCESSOR_SIZES)) . ", got '{$entry["type"]}'", self::ERR_INVALID_SCHEMA);
 
 			// validate min, max
 			if(isset($entry["min"]) || isset($entry["max"])){
@@ -454,12 +459,12 @@ final class GLTFParser{
 				($offset_accessor + $offset_view) % $component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
 
 				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Sparse values points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
-				$values = unpack("{$component_type->format}{$sparse["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
+				$values = unpack($component_type->format . ($sparse["count"] * $component_count) . "/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$values = array_values($values);
-				$sparse = array_combine($indices, $values);
+				$sparse = [$indices, $values];
 			}else{
 				// no sparse substitutions needed
-				$sparse = [];
+				$sparse = [[], []];
 			}
 
 			if(isset($entry["bufferView"])){
@@ -467,7 +472,6 @@ final class GLTFParser{
 				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index];
 				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Accessor points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
-
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $entry["byteOffset"] ?? 0;
@@ -479,14 +483,20 @@ final class GLTFParser{
 				$fitness = $offset_accessor + $EFFECTIVE_BYTE_STRIDE * ($entry["count"] - 1) + $component_type->size * $component_count;
 				$fitness <= $view->byte_length || throw new InvalidArgumentException("Expected accessor fitness ({$fitness}) <= buffer view length ({$view->byte_length})", self::ERR_INVALID_SCHEMA);
 
-				$values = unpack("{$component_type->format}{$entry["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
+				$values = unpack($component_type->format . ($entry["count"] * $component_count) . "/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$values = array_values($values);
+			}else{
+				$values = array_fill(0, $entry["count"], 0);
 			}
 
 			// perform sparse substitution for $values
-			foreach($sparse as $index => $value){
-				$values[$index] = $value;
+			foreach($sparse[0] as $index => $index_replace){
+				$offset = $index_replace * $component_count;
+				$replacement = array_slice($sparse[1], $index * $component_count, $component_count);
+				array_splice($values, $offset, $component_count, $replacement);
 			}
+
+			$accessor_values[] = [$component_type, $component_count, $entry["count"], $values];
 		}
 
 		self::validateJsonSchema($properties["asset"], [
@@ -529,7 +539,7 @@ final class GLTFParser{
 				}
 			}
 		}
-		return [$buffers, $buffer_views, $image_buffers];
+		return [$accessor_values, $image_buffers];
 	}
 
 	/**
@@ -583,6 +593,36 @@ final class GLTFParser{
 		return $data;
 	}
 
+	public function calculateNodeTransformationMatrix(array $node) : array{
+		// implemented based on notes from:
+		// https://github.com/KhronosGroup/glTF-Tutorials/blob/bdc3640aad36ec9fe2c20fa262488fab5842f06b/gltfTutorial/gltfTutorial_004_ScenesNodes.md
+		if(isset($node["matrix"])){
+			return Matrix::transpose($node["matrix"]);
+		}
+
+		// no node found: construct a transformation matrix from TRS values
+		$t = $node["translation"] ?? [0, 0, 0];
+		$r = $node["rotation"] ?? [0, 0, 0, 1];
+		$s = $node["scale"] ?? [1, 1, 1];
+
+		$T = [
+			1, 0, 0, $t[0],
+			0, 1, 0, $t[1],
+			0, 0, 1, $t[2],
+			0, 0, 0, 1
+		];
+
+		$R = Matrix::quaternionToRotation($r);
+
+		$S = [
+			$s[0], 0, 0, 0,
+			0, $s[1], 0, 0,
+			0, 0, $s[2], 0,
+			0, 0, 0, 1
+		];
+		return Matrix::multiply($T, Matrix::multiply($R, $S, 4), 4);
+	}
+
 	/**
 	 * Computes length of X, Y, and Z planes of the model.
 	 *
@@ -591,19 +631,38 @@ final class GLTFParser{
 	 */
 	public function computeModelDimensions() : ?array{
 		$values = [];
-		foreach($this->properties["nodes"] as $node){
+		$nodes = [];
+		$stack = [];
+		$offset = 0;
+		foreach($this->properties["scenes"] as $scene){
+			foreach($scene["nodes"] as $node){
+				$stack[] = [$node, [Matrix::IDENTITY4]];
+			}
+		}
+
+		while(isset($stack[$offset])){
+			[$index, $global_transformations] = $stack[$offset++];
+			$node = $this->properties["nodes"][$index];
+			$nodes[$index] = true;
+
+			$transformations = $global_transformations;
+			$transformations[] = $this->calculateNodeTransformationMatrix($node); // append local transformation to globals
+
+			if(isset($node["children"])){
+				foreach($node["children"] as $child){
+					if(!isset($nodes[$child])){
+						$stack[] = [$child, $transformations];
+					}
+				}
+			}
+
 			if(!isset($node["mesh"])){
 				continue;
 			}
 
-			if(isset($node["matrix"])){
-				$tx = $node["matrix"][12];
-				$ty = $node["matrix"][13];
-				$tz = $node["matrix"][14];
-			}elseif(isset($node["translation"])){
-				[$tx, $ty, $tz] = $node["translation"];
-			}else{
-				continue;
+			$transformation = $transformations[0];
+			for($i = 1, $j = count($transformations); $i < $j; $i++){
+				$transformation = Matrix::multiply($transformation, $transformations[$i], 4);
 			}
 
 			$mesh = $this->properties["meshes"][$node["mesh"]];
@@ -611,17 +670,22 @@ final class GLTFParser{
 				if(!isset($primitive["attributes"]["POSITION"])){
 					continue;
 				}
-
-				$accessor = $this->properties["accessors"][$primitive["attributes"]["POSITION"]];
-				array_push($values, [
-					$accessor["min"][0] + $tx,
-					$accessor["min"][1] + $ty,
-					$accessor["min"][2] + $tz,
-				], [
-					$accessor["max"][0] + $tx,
-					$accessor["max"][1] + $ty,
-					$accessor["max"][2] + $tz,
-				]);
+				if(isset($primitive["extensions"]) && count($primitive["extensions"]) > 0){
+					// extensions like KHR_draco_mesh_compression require further handling, otherwise we end up with
+					// incorrect accessor values.
+					continue;
+				}
+				[$comp_type, $comp_size, $n_comp, $comp_values] = $this->accessor_values[$primitive["attributes"]["POSITION"]];
+				for($i = 0, $j = count($comp_values); $i < $j; $i += $comp_size){
+					$x = $comp_values[$i];
+					$y = $comp_values[$i + 1];
+					$z = $comp_values[$i + 2];
+					$values[] = [
+						($transformation[0] * $x) + ($transformation[1] * $y) + ($transformation[2] * $z) + $transformation[3],
+						($transformation[4] * $x) + ($transformation[5] * $y) + ($transformation[6] * $z) + $transformation[7],
+						($transformation[8] * $x) + ($transformation[9] * $y) + ($transformation[10] * $z) + $transformation[11]
+					];
+				}
 			}
 		}
 		if(count($values) === 0){
