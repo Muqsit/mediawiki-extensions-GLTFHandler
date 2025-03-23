@@ -85,10 +85,15 @@ final class GLTFParser{
 	/** @var int whether to resolve buffers pointing a remote URI */
 	public const FLAG_RESOLVE_REMOTE_URI = 1 << 3;
 
+	/** @var int the file has an unsupported GLTF version */
 	public const ERR_UNSUPPORTED_VERSION = 100000;
+	/** @var int file metadata (glTF properties) is improperly formatted */
 	public const ERR_INVALID_SCHEMA = 100001;
+	/** @var int a URI to an embedded resource (e.g., data:application/octet-stream) could not successfully be read */
 	public const ERR_URI_RESOLUTION_EMBEDDED = 100002;
+	/** @var int a URI to a local resource (i.e., a local file) could not successfully be read */
 	public const ERR_URI_RESOLUTION_LOCAL = 100003;
+	/** @var int a URI to a remote resource (e.g., https://...) could not successfully be read */
 	public const ERR_URI_RESOLUTION_REMOTE = 100004;
 
 	/**
