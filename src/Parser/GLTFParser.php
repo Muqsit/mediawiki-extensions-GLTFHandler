@@ -51,22 +51,6 @@ use const SEEK_CUR;
 final class GLTFParser{
 
 	public const ALLOWED_URI_EXTENSIONS = ["bin", "glbin", "glbuf", "png", "jpg", "jpeg"];
-	public const COMPONENT_TYPES = [
-		5120 => "BYTE",
-		5121 => "UNSIGNED_BYTE",
-		5122 => "SHORT",
-		5123 => "UNSIGNED_SHORT",
-		5125 => "UNSIGNED_INT",
-		5126 => "FLOAT"
-	];
-	public const COMPONENT_SIZES = [ // in bytes
-		5120 => 1,
-		5121 => 1,
-		5122 => 2,
-		5123 => 2,
-		5125 => 4,
-		5126 => 4
-	];
 
 	/** @var int pertains to glTF header - this value is same as unpack("V", "glTF")[1] */
 	public const HEADER_MAGIC = 0x46546C67;
@@ -172,6 +156,9 @@ final class GLTFParser{
 		}
 	}
 
+	/** @var array<int, GLTFComponentType> */
+	public array $component_registry;
+
 	public string $directory;
 	public bool $binary;
 	public int $version;
@@ -188,6 +175,8 @@ final class GLTFParser{
 	 * @param self::FLAG_* $flags
 	 */
 	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
+		$this->component_registry = GLTFComponentType::registry();
+
 		$directory = dirname($path); // needed for buffer resolution (when URIs are encountered)
 		$binary = match(true){
 			($flags & self::FLAG_TYPE_GLB) > 0 => true,
@@ -363,13 +352,11 @@ final class GLTFParser{
 
 			$entry["count"] >= 1 || throw new InvalidArgumentException("Expected 'count' >= 1, got {$entry["count"]}", self::ERR_INVALID_SCHEMA);
 
-			$component_type = $entry["componentType"];
-			isset(self::COMPONENT_TYPES[$component_type]) || throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys(self::COMPONENT_TYPES)) . ", got {$component_type}", self::ERR_INVALID_SCHEMA);
+			$component_type = $this->component_registry[$entry["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($this->component_registry)) . ", got {$entry["componentType"]}", self::ERR_INVALID_SCHEMA);
 			!isset($entry["byteOffset"]) || $entry["byteOffset"] >= 0 || throw new InvalidArgumentException("Expected 'sparse.count' >= 0, got {$entry["byteOffset"]}", self::ERR_INVALID_SCHEMA);
-			if(isset($entry["normalized"]) && $entry["normalized"] && in_array(self::COMPONENT_TYPES[$component_type], ["FLOAT", "UNSIGNED_INT"], true)){
-				throw new InvalidArgumentException("Expected 'normalized' to be false when component type is {$component_type}", self::ERR_INVALID_SCHEMA);
+			if(isset($entry["normalized"]) && $entry["normalized"] && in_array($component_type->code, [GLTFComponentType::FLOAT, GLTFComponentType::UNSIGNED_INT], true)){
+				throw new InvalidArgumentException("Expected 'normalized' to be false when component type is {$component_type->name}", self::ERR_INVALID_SCHEMA);
 			}
-			$component_size = self::COMPONENT_SIZES[$component_type];
 			$component_count = match($entry["type"]){
 				"SCALAR" => 1,
 				"VEC2" => 2,
@@ -388,15 +375,7 @@ final class GLTFParser{
 				foreach([...$entry["min"], ...$entry["max"]] as $value){
 					!is_infinite($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
 					!is_nan($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
-					[$min, $max] = match(self::COMPONENT_TYPES[$component_type]){ // perhaps we should use unpack(pack()) to validate these values?
-						"BYTE" => [-0x7f - 1, 0x7f],
-						"UNSIGNED_BYTE" => [0, 0xff],
-						"SHORT" => [-0x7fff - 1, 0x7fff],
-						"UNSIGNED_SHORT" => [0, 0xffff],
-						"UNSIGNED_INT" => [0, 0xffffffff],
-						"FLOAT" => [-3.4028237 * (10 ** 38), 3.4028237 * (10 ** 38)]
-					};
-					($value >= $min && $value <= $max) || throw new InvalidArgumentException("Expected accessor entry to fall in range [{$min}, {$max}], got {$value}", self::ERR_INVALID_SCHEMA);
+					($value >= $component_type->min && $value <= $component_type->max) || throw new InvalidArgumentException("Expected accessor entry to fall in range [{$component_type->min}, {$component_type->max}], got {$value}", self::ERR_INVALID_SCHEMA);
 				}
 			}
 
@@ -414,9 +393,7 @@ final class GLTFParser{
 				$sparse["count"] <= $entry["count"] || throw new InvalidArgumentException("Expected 'sparse.count' ({$sparse["count"]}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
 
 				// validate indices
-				$sparse_component_type = $sparse["indices"]["componentType"];
-				isset(self::COMPONENT_TYPES[$sparse_component_type]) || throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys(self::COMPONENT_TYPES)) . ", got {$sparse_component_type}", self::ERR_INVALID_SCHEMA);
-				$sparse_component_size = self::COMPONENT_SIZES[$sparse_component_type];
+				$sparse_component_type = $this->component_registry[$sparse["indices"]["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($this->component_registry)) . ", got {$sparse["indices"]["componentType"]}", self::ERR_INVALID_SCHEMA);
 				$index = $sparse["indices"]["bufferView"];
 				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index];
@@ -426,15 +403,10 @@ final class GLTFParser{
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $sparse["indices"]["byteOffset"] ?? 0;
 				$offset_view = $view["byteOffset"] ?? 0;
-				($offset_accessor + $offset_view) % $sparse_component_size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '" . self::COMPONENT_TYPES[$sparse_component_size] . "' ({$sparse_component_size})", self::ERR_INVALID_SCHEMA);
+				($offset_accessor + $offset_view) % $sparse_component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '{$sparse_component_type->name}' ({$sparse_component_type->size})", self::ERR_INVALID_SCHEMA);
 
 				is_string($buffers[$view["buffer"]]) || throw new InvalidArgumentException("Sparse indices points to an unresolved buffer ({$view["buffer"]}): {$buffers[$view["buffer"]][0]}", self::ERR_INVALID_SCHEMA);
-				$indices = unpack(match(self::COMPONENT_TYPES[$sparse_component_type]){
-					"UNSIGNED_BYTE" => "C",
-					"UNSIGNED_SHORT" => "v",
-					"UNSIGNED_INT" => "V",
-					default => throw new InvalidArgumentException("Expected 'componentType' to be one of: UNSIGNED_BYTE, UNSIGNED_SHORT, UNSIGNED_INT, got " . self::COMPONENT_TYPES[$sparse_component_type], self::ERR_INVALID_SCHEMA)
-				} . "{$sparse["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
+				$indices = unpack("{$sparse_component_type->format}{$sparse["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
 				$indices = array_values($indices);
 				foreach($indices as $index => $value){
 					$value < $entry["count"] || throw new InvalidArgumentException("Expected sparse.indices ({$value}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
@@ -453,21 +425,14 @@ final class GLTFParser{
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $sparse["values"]["byteOffset"] ?? 0;
 				$offset_view = $view["byteOffset"] ?? 0;
-				($offset_accessor + $offset_view) % $component_size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '" . self::COMPONENT_TYPES[$component_type] . "' ({$component_size})", self::ERR_INVALID_SCHEMA);
+				($offset_accessor + $offset_view) % $component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
 
 				is_string($buffers[$view["buffer"]]) || throw new InvalidArgumentException("Sparse values points to an unresolved buffer ({$view["buffer"]}): {$buffers[$view["buffer"]][0]}", self::ERR_INVALID_SCHEMA);
-				$values = unpack(match(self::COMPONENT_TYPES[$component_type]){
-					"BYTE" => "c",
-					"UNSIGNED_BYTE" => "C",
-					"SHORT" => "s",
-					"UNSIGNED_SHORT" => "v",
-					"UNSIGNED_INT" => "V",
-					"FLOAT" => "g"
-				} . "{$sparse["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
+				$values = unpack("{$component_type->format}{$sparse["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
 				$values = array_values($values);
 				$sparse = array_combine($indices, $values);
 			}else{
-				$sparse = array_fill(0, $entry["count"] * $component_size, 0);
+				$sparse = array_fill(0, $entry["count"] * $component_type->size, 0);
 			}
 
 			if(isset($entry["bufferView"])){
@@ -479,21 +444,14 @@ final class GLTFParser{
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $entry["byteOffset"] ?? 0;
 				$offset_view = $view["byteOffset"] ?? 0;
-				($offset_accessor + $offset_view) % $component_size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of accessor component '" . self::COMPONENT_TYPES[$component_type] . "' ({$component_size})", self::ERR_INVALID_SCHEMA);
-				!isset($view["byteStride"]) || $view["byteStride"] % $component_size === 0 || throw new InvalidArgumentException("Expected byte stride of view ({$view["byteStride"]}) to be a multiple of size of accessor component '" . self::COMPONENT_TYPES[$component_type] . "' ({$component_size})", self::ERR_INVALID_SCHEMA);
+				($offset_accessor + $offset_view) % $component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
+				!isset($view["byteStride"]) || $view["byteStride"] % $component_type->size === 0 || throw new InvalidArgumentException("Expected byte stride of view ({$view["byteStride"]}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
 
 				$EFFECTIVE_BYTE_STRIDE = $view["byteStride"] ?? 0;
-				$fitness = $offset_accessor + $EFFECTIVE_BYTE_STRIDE * ($entry["count"] - 1) + $component_size * $component_count;
+				$fitness = $offset_accessor + $EFFECTIVE_BYTE_STRIDE * ($entry["count"] - 1) + $component_type->size * $component_count;
 				$fitness <= $view["byteLength"] || throw new InvalidArgumentException("Expected accessor fitness ({$fitness}) <= buffer view length ({$view["byteLength"]})", self::ERR_INVALID_SCHEMA);
 
-				$values = unpack(match(self::COMPONENT_TYPES[$component_type]){
-					"BYTE" => "c",
-					"UNSIGNED_BYTE" => "C",
-					"SHORT" => "s",
-					"UNSIGNED_SHORT" => "v",
-					"UNSIGNED_INT" => "V",
-					"FLOAT" => "g"
-				} . "{$entry["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
+				$values = unpack("{$component_type->format}{$entry["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
 				$values = array_values($values);
 				// TODO: perform $sparse substitution for $values
 			}
