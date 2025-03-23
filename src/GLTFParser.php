@@ -314,8 +314,7 @@ final class GLTFParser{
 				self::validateJsonSchema($entry, $required_buffers + $optional_buffers, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}");
 				if(!$binary){
-					$buffer = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"]);
-					$buffers[$index] = $buffer ?? [$entry["uri"], $entry["byteLength"]];
+					$buffers[$index] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"]);
 				}else{
 					$index === 0 || throw new InvalidArgumentException("Binary specification must define only one buffer, got a buffer at index {$index}", self::ERR_INVALID_SCHEMA);
 					isset($buffers[$index]) || throw new InvalidArgumentException("Binary specification must pre-define buffers", self::ERR_INVALID_SCHEMA);
@@ -533,8 +532,7 @@ final class GLTFParser{
 						$image_buffers[] = [$view, null];
 					}
 				}else{
-					$buffer = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, null);
-					$image_buffers[] = $buffer ?? [$entry["uri"], null];
+					$image_buffers[] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote);
 				}
 			}
 		}
@@ -550,9 +548,9 @@ final class GLTFParser{
 	 * @param string|null $base_directory the base directory for relative URI paths
 	 * @param bool $resolve_remote whether to resolve remote URIs (e.g., http://, https://, etc.)
 	 * @param int|null $length the length of bytes of the resolved buffer, or null to ignore length constraints
-	 * @return string|null the returned raw buffer (byte array), or null if the options disallow this resolution
+	 * @return string the returned raw buffer (byte array)
 	 */
-	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, ?int $length = null) : ?string{
+	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, ?int $length = null) : string{
 		if(str_starts_with($uri, "data:")){
 			$token_end = strpos($uri, ",", 5);
 			if($token_end === false || $token_end > 64){
@@ -576,17 +574,13 @@ final class GLTFParser{
 			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED);
 		}
 		if(filter_var($uri, FILTER_VALIDATE_URL)){
-			if(!$resolve_remote){
-				return null;
-			}
+			$resolve_remote || throw new InvalidArgumentException("Remote resolution is not allowed", self::ERR_URI_RESOLUTION_REMOTE);
 			// TODO: Validate return type, HTTP response code
 			$data = file_get_contents($uri, length: $length);
 			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_REMOTE);
 			return $data;
 		}
-		if($base_directory === null){
-			return null;
-		}
+		$base_directory ?? throw new InvalidArgumentException("Local resolution is not allowed", self::ERR_URI_RESOLUTION_LOCAL);
 		$path = $base_directory . DIRECTORY_SEPARATOR . urldecode($uri);
 		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}", self::ERR_URI_RESOLUTION_LOCAL);
 		$ext = pathinfo($path, PATHINFO_EXTENSION);
