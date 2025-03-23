@@ -39,13 +39,17 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 		$attributes["skybox-height"] = $this->pParams["skybox-height"] ?? null;
 		$attributes["src"] = $this->pSourceFileURL;
 
-		if(isset($this->pParams["width"])){
-			$width = (float) $this->pParams["width"];
-			$height = $width * ($this->pHeight / $this->pWidth);
-			$attributes["style"] = "width: {$width}px; height: {$height}px;";
+		if($this->pHeight > 0 && $this->pWidth > 0){
+			if(isset($this->pParams["width"])){
+				$width = (float)$this->pParams["width"];
+				$height = $width * ($this->pHeight / $this->pWidth);
+				$attributes["style"] = "width: {$width}px; height: {$height}px;";
+			}else{
+				$width = $this->pWidth;
+				$height = $this->pHeight;
+			}
 		}else{
-			$width = $this->pWidth;
-			$height = $this->pHeight;
+			$width = $height = null;
 		}
 
 		if(isset($this->pParams["poster"]) && is_string($this->pParams["poster"])){
