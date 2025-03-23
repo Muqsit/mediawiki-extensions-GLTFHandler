@@ -26,6 +26,7 @@
 		}
 	},
     "require": {
-        "ext-ctype": "*"
+        "ext-ctype": "*",
+        "ext-fileinfo": "*"
     }
 }

@@ -2,6 +2,7 @@
 
 namespace MediaWiki\Extension\GLTFHandler\Parser;
 
+use finfo;
 use InvalidArgumentException;
 use JsonException;
 use function array_column;
@@ -15,6 +16,7 @@ use function base64_decode;
 use function bin2hex;
 use function count;
 use function dirname;
+use function explode;
 use function fclose;
 use function feof;
 use function file_exists;
@@ -22,7 +24,6 @@ use function file_get_contents;
 use function fopen;
 use function fread;
 use function fseek;
-use function getimagesizefromstring;
 use function gettype;
 use function implode;
 use function in_array;
@@ -42,17 +43,31 @@ use function str_repeat;
 use function str_starts_with;
 use function strlen;
 use function strpos;
+use function strtolower;
 use function substr;
 use function unpack;
 use function urldecode;
 use const DIRECTORY_SEPARATOR;
+use const FILEINFO_MIME_TYPE;
 use const JSON_THROW_ON_ERROR;
 use const PATHINFO_EXTENSION;
 use const SEEK_CUR;
 
 final class GLTFParser{
 
-	public const ALLOWED_URI_EXTENSIONS = ["bin", "glbin", "glbuf", "png", "jpg", "jpeg"];
+	public const ALLOWED_MIME_URI_BUFFER = [
+		"application/gltf-buffer",
+		"application/octet-stream",
+		[null, "bin"], // allow all .bin files
+	];
+
+	public const ALLOWED_MIME_URI_IMAGE = [
+		["application/octet-stream", "ktx2"], // allow application/octet-stream only if file has .ktx2 extension
+		"image/jpeg",
+		"image/jpg",
+		"image/png",
+		"image/webp"
+	];
 
 	public const ACCESSOR_SIZES = [
 		"SCALAR" => 1,
@@ -171,6 +186,7 @@ final class GLTFParser{
 	/** @var array<int, GLTFComponentType> */
 	public array $component_registry;
 
+	public finfo $mime_checker;
 	public string $directory;
 	public bool $binary;
 	public int $version;
@@ -183,8 +199,8 @@ final class GLTFParser{
 	/** @var list<GLTFBufferView> */
 	public array $buffer_views;
 
-	/** @var list<int|string> */
-	public array $image_buffers; // (int) index of buffer_views, or (string) raw image buffer
+	/** @var list<array{int|string, string}> */
+	public array $image_buffers; // [0] = (int) index of buffer_views, or (string) raw image buffer. [1] = MIME type
 
 	/** @var list<array{GLTFComponentType, int, int, list<int|float>}> */
 	public array $accessor_values;
@@ -196,6 +212,7 @@ final class GLTFParser{
 	 * @param int-mask-of<self::FLAG_*> $flags
 	 */
 	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
+		$this->mime_checker = new finfo(FILEINFO_MIME_TYPE);
 		$this->component_registry = GLTFComponentType::registry();
 
 		$directory = dirname($path); // needed for buffer resolution (when URIs are encountered)
@@ -333,7 +350,7 @@ final class GLTFParser{
 				self::validateJsonSchema($entry, $required_buffers);
 				self::validateJsonSchema($entry, $required_buffers + $optional_buffers, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 				if(!$binary){
-					$value = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"]);
+					[$value, $mime] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"], self::ALLOWED_MIME_URI_BUFFER);
 					$buffers[$index] = new GLTFBuffer($value, $entry["byteLength"], $entry["uri"], $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
 				}else{
 					$index === 0 || throw new InvalidArgumentException("Binary specification must define only one buffer, got a buffer at index {$index}", self::ERR_INVALID_SCHEMA);
@@ -524,27 +541,48 @@ final class GLTFParser{
 		$optional_images = ["uri" => "", "mimeType" => "", "bufferView" => 0, "name" => "", "extensions" => [], "extras" => []];
 		$image_buffers = [];
 		if(isset($properties["images"])){
-			foreach($properties["images"] as $entry){
+			foreach($properties["images"] as $index => $entry){
 				self::validateJsonSchema($entry, $optional_images, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 				!isset($entry["uri"], $entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got both", self::ERR_INVALID_SCHEMA);
 				isset($entry["uri"]) || isset($entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got neither", self::ERR_INVALID_SCHEMA);
 				if(isset($entry["bufferView"])){
 					$entry["bufferView"] >= 0 || throw new InvalidArgumentException("Expected 'bufferView' >= 0, got {$entry["bufferView"]}", self::ERR_INVALID_SCHEMA);
 					isset($entry["mimeType"]) || throw new InvalidArgumentException("Expected 'mimeType' to be defined when 'bufferView' is defined", self::ERR_INVALID_SCHEMA);
-					$entry["mimeType"] === "image/jpeg" || $entry["mimeType"] === "image/png" || throw new InvalidArgumentException("Expected 'mimeType' to be one of: image/jpeg, image/png, got {$entry["mimeType"]}", self::ERR_INVALID_SCHEMA);
-
-					$index = $entry["bufferView"];
-					isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$index}", self::ERR_INVALID_SCHEMA);
-					$view = $buffer_views[$index];
-					isset($buffers[$view->buffer]) || throw new InvalidArgumentException("Image buffer view at index {$index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count($buffers) . ")");
+					$view_index = $entry["bufferView"];
+					isset($buffer_views[$view_index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$view_index}", self::ERR_INVALID_SCHEMA);
+					$view = $buffer_views[$view_index];
+					isset($buffers[$view->buffer]) || throw new InvalidArgumentException("Image buffer view at index {$view_index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count($buffers) . ")");
 					$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Image points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
-					$image_buffers[] = $index;
+					$image_buffers[] = [$view_index, $entry["mimeType"]];
 				}else{
-					$image_buffers[] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote);
+					[$buffer, $mime] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, null, self::ALLOWED_MIME_URI_IMAGE);
+					if(isset($entry["mimeType"])){
+						$mime = $entry["mimeType"];
+					}
+					$image_buffers[] = [$buffer, $mime];
 				}
 			}
 		}
 		return [$accessor_values, $image_buffers];
+	}
+
+	/**
+	 * @param string $mime the mime type to validate
+	 * @param string|null $ext extension of the file, or null if not known
+	 * @param list<string|array{string, string}>|null $allowed_mimes a list of allowed mime types, or null to allow all mimes
+	 * @return bool whether the mime is valid
+	 */
+	public function validateMime(string $mime, ?string $ext, ?array $allowed_mimes) : bool{
+		if($allowed_mimes === null){
+			return true;
+		}
+		$ext = strtolower($ext);
+		foreach($allowed_mimes as $entry){
+			if($entry === $mime || $entry === [null, $ext] || $entry === [$mime, $ext]){
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -556,9 +594,10 @@ final class GLTFParser{
 	 * @param string|null $base_directory the base directory for relative URI paths
 	 * @param bool $resolve_remote whether to resolve remote URIs (e.g., http://, https://, etc.)
 	 * @param int|null $length the length of bytes of the resolved buffer, or null to ignore length constraints
-	 * @return string the returned raw buffer (byte array)
+	 * @param list<string|array{string, string}>|null $allowed_mimes a list of allowed mime types, or null to allow all mimes
+	 * @return array{string, string} a pair of the returned raw buffer (byte array) and mime type
 	 */
-	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, ?int $length = null) : string{
+	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, ?int $length = null, ?array $allowed_mimes = null) : array{
 		if(str_starts_with($uri, "data:")){
 			$token_end = strpos($uri, ",", 5);
 			if($token_end === false || $token_end > 64){
@@ -566,8 +605,10 @@ final class GLTFParser{
 			}
 			$uri_type = substr($uri, 5, $token_end - 5);
 			$uri_data = substr($uri, $token_end + 1);
+			$mime = explode(";", $uri_type, 2)[0];
+			$this->validateMime($mime, null, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
 			if($uri_type === "application/octet-stream"){
-				return urldecode($uri_data);
+				return [urldecode($uri_data), $mime];
 			}
 			if(in_array($uri_type, [
 				"application/octet-stream;base64",
@@ -577,7 +618,7 @@ final class GLTFParser{
 			], true)){
 				$result = base64_decode($uri_data);
 				$result !== false || throw new InvalidArgumentException("Improperly encoded base64 data supplied for URI type {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED);
-				return $result;
+				return [$result, $mime];
 			}
 			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED);
 		}
@@ -586,16 +627,19 @@ final class GLTFParser{
 			// TODO: Validate return type, HTTP response code
 			$data = file_get_contents($uri, length: $length);
 			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_REMOTE);
-			return $data;
+			$mime = $this->mime_checker->buffer($data);
+			$this->validateMime($mime, null, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
+			return [$data, $mime];
 		}
 		$base_directory ?? throw new InvalidArgumentException("Local resolution is not allowed", self::ERR_URI_RESOLUTION_LOCAL);
 		$path = $base_directory . DIRECTORY_SEPARATOR . urldecode($uri);
 		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}", self::ERR_URI_RESOLUTION_LOCAL);
 		$ext = pathinfo($path, PATHINFO_EXTENSION);
-		in_array($ext, self::ALLOWED_URI_EXTENSIONS, true) || throw new InvalidArgumentException("Expected file extension to be one of: " . implode(", ", self::ALLOWED_URI_EXTENSIONS) . ", got {$ext}", self::ERR_URI_RESOLUTION_LOCAL);
 		$data = file_get_contents($path, length: $length);
 		$data !== false || throw new InvalidArgumentException("Local resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_LOCAL);
-		return $data;
+		$mime = $this->mime_checker->buffer($data);
+		$this->validateMime($mime, $ext, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
+		return [$data, $mime];
 	}
 
 	public function calculateNodeTransformationMatrix(array $node) : array{
@@ -766,7 +810,7 @@ final class GLTFParser{
 		}
 
 		$iv = count($this->buffer_views);
-		foreach($this->image_buffers as $ib => $buffer){
+		foreach($this->image_buffers as $ib => [$buffer, $mime]){
 			if(is_int($buffer)){
 				continue; // we already translated buffer views
 			}
@@ -777,11 +821,7 @@ final class GLTFParser{
 			$buffer .= str_repeat("\0", 4 - (strlen($buffer) % 4));
 			$buffers[] = $buffer;
 			$properties["images"][$ib]["bufferView"] = $iv;
-			if(!isset($properties["images"][$ib]["mimeType"])){
-				$image_size = getimagesizefromstring($buffer);
-				($image_size !== false && isset($image_size["mime"])) || throw new InvalidArgumentException("Failed to retrieve mime for image at index {$ib}");
-				$properties["images"][$ib]["mimeType"] = $image_size["mime"];
-			}
+			$properties["images"][$ib]["mimeType"] = $mime;
 			$properties["bufferViews"][$iv] = ["buffer" => 0, "byteOffset" => $offset, "byteLength" => strlen($buffer)];
 			$iv++;
 			$offset += strlen($buffer);
