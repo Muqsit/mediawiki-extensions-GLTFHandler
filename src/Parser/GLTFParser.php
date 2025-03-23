@@ -165,14 +165,17 @@ final class GLTFParser{
 	public int $length;
 	public array $properties;
 
-	/** @var list<string|array{string, int}> */
+	/** @var list<GLTFBuffer> */
 	public array $buffers;
+
+	/** @var list<GLTFBufferView> */
+	public array $buffer_views;
 
 	/**
 	 * Parses the structure of a GLB or GLTF file.
 	 *
 	 * @param string $path path to a GLB or GLTF file
-	 * @param self::FLAG_* $flags
+	 * @param int-mask-of<self::FLAG_*> $flags
 	 */
 	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
 		$this->component_registry = GLTFComponentType::registry();
@@ -193,7 +196,8 @@ final class GLTFParser{
 					$buffers = [];
 				}else{
 					// a GLB file has only one buffer entry
-					$buffers = [$this->readChunkGlb($resource, self::CHUNK_BIN)];
+					$buffer = $this->readChunkGlb($resource, self::CHUNK_BIN);
+					$buffers = [new GLTFBuffer($buffer, strlen($buffer), null, null, [], [])];
 				}
 			}finally{
 				fclose($resource);
@@ -206,18 +210,21 @@ final class GLTFParser{
 			$properties = $contents;
 			$buffers = [];
 		}
-		if($version !== 2){
-			// TODO: check what the difference between version 1 and version 2 is.
-			// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
-			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2", self::ERR_UNSUPPORTED_VERSION);
-		}
-		[$buffers] = $this->processProperties($properties, $directory, $binary, $buffers, $flags);
+
+		// TODO: check what the difference between version 1 and version 2 is.
+		// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
+		$version === 2 || throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2", self::ERR_UNSUPPORTED_VERSION);
+
+		[$buffers, $buffer_views] = $this->processBuffers($properties, $directory, $binary, $buffers, $flags);
+		$this->processProperties($properties, $directory, $buffers, $buffer_views, $flags);
+
 		$this->directory = $directory;
 		$this->binary = $binary;
 		$this->version = $version;
 		$this->length = $length;
 		$this->properties = $properties;
 		$this->buffers = $buffers;
+		$this->buffer_views = $buffer_views;
 	}
 
 	/**
@@ -265,18 +272,19 @@ final class GLTFParser{
 	}
 
 	/**
-	 * Validates schema of GLTF properties.
+	 * Validates schema of GLTF buffers and buffer views, and returns them as object representations.
 	 *
 	 * TODO: Schema validation ought to be defined in a separate resource file, preferably one that adheres to
 	 * json-schema.org.
 	 *
 	 * @param array $properties
+	 * @param string $directory
 	 * @param bool $binary
-	 * @param list<array{self::BUFFER_RESOLVED, string}|array{self::BUFFER_UNRESOLVED, array{string, int}}> $buffers
-	 * @param self::FLAG_* $flags
-	 * @return array
+	 * @param list<GLTFBuffer> $buffers
+	 * @param int-mask-of<self::FLAG_*> $flags
+	 * @return array{list<GLTFBuffer>, list<GLTFBufferView>}
 	 */
-	public function processProperties(array $properties, string $directory, bool $binary, array $buffers = [], int $flags = 0) : array{
+	public function processBuffers(array $properties, string $directory, bool $binary, array $buffers = [], int $flags = 0) : array{
 		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $directory : null;
 		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
 
@@ -304,13 +312,13 @@ final class GLTFParser{
 			foreach($properties["buffers"] as $index => $entry){
 				self::validateJsonSchema($entry, $required_buffers);
 				self::validateJsonSchema($entry, $required_buffers + $optional_buffers, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}");
 				if(!$binary){
-					$buffers[$index] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"]);
+					$value = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"]);
+					$buffers[$index] = new GLTFBuffer($value, $entry["byteLength"], $entry["uri"], $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
 				}else{
 					$index === 0 || throw new InvalidArgumentException("Binary specification must define only one buffer, got a buffer at index {$index}", self::ERR_INVALID_SCHEMA);
 					isset($buffers[$index]) || throw new InvalidArgumentException("Binary specification must pre-define buffers", self::ERR_INVALID_SCHEMA);
-					is_string($buffers[$index]) || throw new InvalidArgumentException("Expected binary specification buffer to be resolved, got unresolved {$buffers[$index][0]}", self::ERR_INVALID_SCHEMA);
+					$buffers[$index]->value ?? throw new InvalidArgumentException("Expected binary specification buffer to be resolved, got unresolved {$buffers[$index]->uri}", self::ERR_INVALID_SCHEMA);
 				}
 			}
 		}
@@ -324,15 +332,29 @@ final class GLTFParser{
 			foreach($properties["bufferViews"] as $entry){
 				self::validateJsonSchema($entry, $required_buffer_views);
 				self::validateJsonSchema($entry, $required_buffer_views + $optional_buffer_views, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				isset($buffers[$entry["buffer"]]) || throw new InvalidArgumentException("Expected 'buffer' >= 0, < " . count($buffers) . ", got {$entry["buffer"]}", self::ERR_INVALID_SCHEMA);
-				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}", self::ERR_INVALID_SCHEMA);
-
-				!isset($entry["byteOffset"]) || $entry["byteOffset"] >= 0 || throw new InvalidArgumentException("Expected 'byteOffset' >= 0, got {$entry["byteOffset"]}", self::ERR_INVALID_SCHEMA);
-				!isset($entry["byteStride"]) || ($entry["byteStride"] >= 4 && $entry["byteStride"] <= 252) || throw new InvalidArgumentException("Expected 'byteStride' >= 4, <= 252, got {$entry["byteStride"]}", self::ERR_INVALID_SCHEMA);
-				!isset($entry["target"]) || $entry["target"] === 34962 || $entry["target"] === 34963 || throw new InvalidArgumentException("Expected 'target' to be one of: 34962, 34963, got {$entry["target"]}", self::ERR_INVALID_SCHEMA);
-				$buffer_views[] = $entry;
+				$buffer_views[] = new GLTFBufferView($entry["buffer"], $entry["byteLength"], $entry["byteOffset"] ?? 0, $entry["byteStride"] ?? null, $entry["target"] ?? null, $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
 			}
 		}
+
+		return [$buffers, $buffer_views];
+	}
+
+	/**
+	 * Validates schema of GLTF properties.
+	 *
+	 * TODO: Schema validation ought to be defined in a separate resource file, preferably one that adheres to
+	 * json-schema.org.
+	 *
+	 * @param array $properties
+	 * @param string $directory
+	 * @param list<GLTFBuffer> $buffers
+	 * @param list<GLTFBufferView> $buffer_views
+	 * @param int-mask-of<self::FLAG_*> $flags
+	 * @return array
+	 */
+	public function processProperties(array $properties, string $directory, array $buffers = [], array $buffer_views = [], int $flags = 0) : array{
+		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $directory : null;
+		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
 
 		// validate accessors
 		$required_accessors = ["componentType" => 0, "count" => 0, "type" => ""];
@@ -397,16 +419,16 @@ final class GLTFParser{
 				$index = $sparse["indices"]["bufferView"];
 				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index];
-				!isset($view["byteStride"]) || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
-				!isset($view["target"]) || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
+				$view->byte_stride === null || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
+				$view->target === null || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $sparse["indices"]["byteOffset"] ?? 0;
-				$offset_view = $view["byteOffset"] ?? 0;
+				$offset_view = $view->byte_offset;
 				($offset_accessor + $offset_view) % $sparse_component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '{$sparse_component_type->name}' ({$sparse_component_type->size})", self::ERR_INVALID_SCHEMA);
 
-				is_string($buffers[$view["buffer"]]) || throw new InvalidArgumentException("Sparse indices points to an unresolved buffer ({$view["buffer"]}): {$buffers[$view["buffer"]][0]}", self::ERR_INVALID_SCHEMA);
-				$indices = unpack("{$sparse_component_type->format}{$sparse["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
+				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Sparse indices points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
+				$indices = unpack("{$sparse_component_type->format}{$sparse["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$indices = array_values($indices);
 				foreach($indices as $index => $value){
 					$value < $entry["count"] || throw new InvalidArgumentException("Expected sparse.indices ({$value}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
@@ -419,16 +441,16 @@ final class GLTFParser{
 				$index = $sparse["values"]["bufferView"];
 				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index];
-				!isset($view["byteStride"]) || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
-				!isset($view["target"]) || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
+				$view->byte_stride === null || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
+				$view->target === null || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $sparse["values"]["byteOffset"] ?? 0;
-				$offset_view = $view["byteOffset"] ?? 0;
+				$offset_view = $view->byte_offset ?? 0;
 				($offset_accessor + $offset_view) % $component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
 
-				is_string($buffers[$view["buffer"]]) || throw new InvalidArgumentException("Sparse values points to an unresolved buffer ({$view["buffer"]}): {$buffers[$view["buffer"]][0]}", self::ERR_INVALID_SCHEMA);
-				$values = unpack("{$component_type->format}{$sparse["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
+				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Sparse values points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
+				$values = unpack("{$component_type->format}{$sparse["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$values = array_values($values);
 				$sparse = array_combine($indices, $values);
 			}else{
@@ -439,26 +461,26 @@ final class GLTFParser{
 				$index = $entry["bufferView"];
 				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index];
-				is_string($buffers[$view["buffer"]]) || throw new InvalidArgumentException("Accessor points to an unresolved buffer ({$view["buffer"]}): {$buffers[$view["buffer"]][0]}", self::ERR_INVALID_SCHEMA);
+				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Accessor points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $entry["byteOffset"] ?? 0;
-				$offset_view = $view["byteOffset"] ?? 0;
+				$offset_view = $view->byte_offset;
 				($offset_accessor + $offset_view) % $component_type->size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
-				!isset($view["byteStride"]) || $view["byteStride"] % $component_type->size === 0 || throw new InvalidArgumentException("Expected byte stride of view ({$view["byteStride"]}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
+				$view->byte_stride === null || $view->byte_stride % $component_type->size === 0 || throw new InvalidArgumentException("Expected byte stride of view ({$view->byte_stride}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA);
 
-				$EFFECTIVE_BYTE_STRIDE = $view["byteStride"] ?? 0;
+				$EFFECTIVE_BYTE_STRIDE = $view->byte_stride ?? 0;
 				$fitness = $offset_accessor + $EFFECTIVE_BYTE_STRIDE * ($entry["count"] - 1) + $component_type->size * $component_count;
-				$fitness <= $view["byteLength"] || throw new InvalidArgumentException("Expected accessor fitness ({$fitness}) <= buffer view length ({$view["byteLength"]})", self::ERR_INVALID_SCHEMA);
+				$fitness <= $view->byte_length || throw new InvalidArgumentException("Expected accessor fitness ({$fitness}) <= buffer view length ({$view->byte_length})", self::ERR_INVALID_SCHEMA);
 
-				$values = unpack("{$component_type->format}{$entry["count"]}/", $buffers[$view["buffer"]], $offset_accessor + $offset_view);
+				$values = unpack("{$component_type->format}{$entry["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$values = array_values($values);
 				// TODO: perform $sparse substitution for $values
 			}
 		}
 
-		self::validateJsonSchema($properties["asset"], $required["asset"] + [
-			"copyright" => "", "generator" => "", "minVersion" => "", "extensions" => [], "extras" => []
+		self::validateJsonSchema($properties["asset"], [
+			"version" => "", "copyright" => "", "generator" => "", "minVersion" => "", "extensions" => [], "extras" => []
 		], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 
 		// validate animations
@@ -487,8 +509,8 @@ final class GLTFParser{
 					$index = $entry["bufferView"];
 					isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$index}", self::ERR_INVALID_SCHEMA);
 					$view = $buffer_views[$index];
-					if(is_string($buffers[$view["buffer"]])){
-						$image_buffers[] = substr($buffers[$view["buffer"]][1], $view["byteOffset"] ?? 0, $view["byteLength"]);
+					if(is_string($buffers[$view->buffer])){
+						$image_buffers[] = substr($buffers[$view->buffer]->value, $view->byte_offset, $view->byte_length);
 					}else{
 						$image_buffers[] = [$view, null];
 					}
