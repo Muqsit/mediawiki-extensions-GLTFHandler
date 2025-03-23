@@ -336,6 +336,10 @@ final class GLTFParser{
 			}
 		}
 
+		// integrity check
+		foreach($buffer_views as $index => $view){
+			isset($buffers[$view->buffer]) || throw new InvalidArgumentException("Buffer at index {$index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count($buffers) . ")");
+		}
 		return [$buffers, $buffer_views];
 	}
 
