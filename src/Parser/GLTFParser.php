@@ -458,7 +458,8 @@ final class GLTFParser{
 				$values = array_values($values);
 				$sparse = array_combine($indices, $values);
 			}else{
-				$sparse = array_fill(0, $entry["count"] * $component_type->size, 0);
+				// no sparse substitutions needed
+				$sparse = [];
 			}
 
 			if(isset($entry["bufferView"])){
@@ -466,6 +467,7 @@ final class GLTFParser{
 				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index];
 				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Accessor points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
+
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $entry["byteOffset"] ?? 0;
@@ -479,7 +481,11 @@ final class GLTFParser{
 
 				$values = unpack("{$component_type->format}{$entry["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$values = array_values($values);
-				// TODO: perform $sparse substitution for $values
+			}
+
+			// perform sparse substitution for $values
+			foreach($sparse as $index => $value){
+				$values[$index] = $value;
 			}
 		}
 
