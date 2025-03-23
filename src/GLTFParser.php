@@ -5,11 +5,13 @@ namespace MediaWiki\Extension\GLTFHandler;
 use InvalidArgumentException;
 use JsonException;
 use function array_column;
+use function array_combine;
 use function array_diff_key;
 use function array_fill;
 use function array_keys;
 use function array_push;
 use function array_slice;
+use function array_values;
 use function base64_decode;
 use function bin2hex;
 use function count;
@@ -48,6 +50,22 @@ use const SEEK_CUR;
 final class GLTFParser{
 
 	public const ALLOWED_URI_EXTENSIONS = ["bin", "glbin", "glbuf", "png", "jpg", "jpeg"];
+	public const COMPONENT_TYPES = [
+		5120 => "BYTE",
+		5121 => "UNSIGNED_BYTE",
+		5122 => "SHORT",
+		5123 => "UNSIGNED_SHORT",
+		5125 => "UNSIGNED_INT",
+		5126 => "FLOAT"
+	];
+	public const COMPONENT_SIZES = [ // in bytes
+		5120 => 1,
+		5121 => 1,
+		5122 => 2,
+		5123 => 2,
+		5125 => 4,
+		5126 => 4
+	];
 
 	public const HEADER_MAGIC = 0x46546C67;
 	public const CHUNK_JSON = 0x4E4F534A;
@@ -66,6 +84,12 @@ final class GLTFParser{
 	public const FLAG_RESOLVE_LOCAL_URI = 1 << 2;
 	/** @var int whether to resolve buffers pointing a remote URI */
 	public const FLAG_RESOLVE_REMOTE_URI = 1 << 3;
+
+	public const ERR_UNSUPPORTED_VERSION = 100000;
+	public const ERR_INVALID_SCHEMA = 100001;
+	public const ERR_URI_RESOLUTION_EMBEDDED = 100002;
+	public const ERR_URI_RESOLUTION_LOCAL = 100003;
+	public const ERR_URI_RESOLUTION_REMOTE = 100004;
 
 	/**
 	 * Infer file format (GLTF vs. GLB) by reading the first 4 bytes from the file.
@@ -96,7 +120,7 @@ final class GLTFParser{
 			// PHP's default 512 limit should be well more than sufficient for most if not all valid GLTF files.
 			$result = json_decode($data, true, 16, JSON_THROW_ON_ERROR);
 		}catch(JsonException $e){
-			throw new InvalidArgumentException("Failed to decode JSON data: {$e->getMessage()}", $e->getCode(), $e);
+			throw new InvalidArgumentException("Failed to decode JSON data: {$e->getMessage()}", 0, $e);
 		}
 		is_array($result) || throw new InvalidArgumentException("Expected JSON data to be of type array, got " . gettype($result));
 		return $result;
@@ -121,19 +145,19 @@ final class GLTFParser{
 			$sub_schema = $schema;
 			$value = $json;
 			foreach($keys as $offset => $key){
-				is_array($value) || throw new InvalidArgumentException("Key '" . implode(".", array_slice($keys, 0, $offset)) . "' must be an array");
+				is_array($value) || throw new InvalidArgumentException("Key '" . implode(".", array_slice($keys, 0, $offset + 1)) . "' must be an array", self::ERR_INVALID_SCHEMA);
 				if($report_unknown_k && is_array($sub_schema)){
 					$unknown_k = array_keys(array_diff_key($value, $sub_schema));
-					count($unknown_k) === 0 || throw new InvalidArgumentException("Unknown keys encountered in '" . implode(".", array_slice($keys, 0, $offset)) . "': [" . implode(", ", array_slice($unknown_k, 0, 8)) . "], expected one of: [" . implode(", ", array_keys($sub_schema)) . "]");
+					count($unknown_k) === 0 || throw new InvalidArgumentException("Unknown keys encountered in '" . implode(".", array_slice($keys, 0, $offset)) . "': [" . implode(", ", array_slice($unknown_k, 0, 8)) . "], expected one of: [" . implode(", ", array_keys($sub_schema)) . "]", self::ERR_INVALID_SCHEMA);
 				}
 				if($optional && !isset($value[$key])){
 					continue 2;
 				}
-				isset($value[$key]) || throw new InvalidArgumentException("Key '" . implode(".", array_slice($keys, 0, $offset + 1)) . "' must be set");
+				isset($value[$key]) || throw new InvalidArgumentException("Key '" . implode(".", array_slice($keys, 0, $offset + 1)) . "' must be set", self::ERR_INVALID_SCHEMA);
 				$value = $value[$key];
 				$sub_schema = $sub_schema[$key];
 			}
-			gettype($value) === gettype($expect) || (is_float($expect) && is_int($value)) || throw new InvalidArgumentException("Expected type of value at '" . implode(".", $keys) . "' to be " . gettype($expect) . ", got " . gettype($value));
+			gettype($value) === gettype($expect) || (is_float($expect) && is_int($value)) || throw new InvalidArgumentException("Expected type of value at '" . implode(".", $keys) . "' to be " . gettype($expect) . ", got " . gettype($value), self::ERR_INVALID_SCHEMA);
 			if(is_array($expect) && $nesting){
 				foreach($expect as $k => $v){
 					$keys2 = $keys;
@@ -159,7 +183,7 @@ final class GLTFParser{
 	 * @param string $path path to a GLB or GLTF file
 	 * @param self::FLAG_* $flags
 	 */
-	public function __construct(string $path, int $flags = 0){
+	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
 		$directory = dirname($path); // needed for buffer resolution (when URIs are encountered)
 		$binary = match(true){
 			($flags & self::FLAG_TYPE_GLB) > 0 => true,
@@ -192,9 +216,9 @@ final class GLTFParser{
 		if($version !== 2){
 			// TODO: check what the difference between version 1 and version 2 is.
 			// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
-			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2");
+			throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2", self::ERR_UNSUPPORTED_VERSION);
 		}
-		[$buffers] = $this->processProperties($properties, $binary, $buffers, $flags);
+		[$buffers] = $this->processProperties($properties, $directory, $binary, $buffers, $flags);
 		$this->directory = $directory;
 		$this->binary = $binary;
 		$this->version = $version;
@@ -248,13 +272,21 @@ final class GLTFParser{
 	}
 
 	/**
+	 * Validates schema of GLTF properties.
+	 *
+	 * TODO: Schema validation ought to be defined in a separate resource file, preferably one that adheres to
+	 * json-schema.org.
+	 *
 	 * @param array $properties
 	 * @param bool $binary
 	 * @param list<array{self::BUFFER_RESOLVED, string}|array{self::BUFFER_UNRESOLVED, array{string, int}}> $buffers
 	 * @param self::FLAG_* $flags
 	 * @return array
 	 */
-	public function processProperties(array $properties, bool $binary, array $buffers = [], int $flags = 0) : array{
+	public function processProperties(array $properties, string $directory, bool $binary, array $buffers = [], int $flags = 0) : array{
+		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $directory : null;
+		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
+
 		$required = [
 			"accessors" => [],
 			"asset" => ["version" => ""]
@@ -267,6 +299,49 @@ final class GLTFParser{
 		self::validateJsonSchema($properties, $required);
 		self::validateJsonSchema($properties, $required + $optional, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS | self::SCHEMA_NO_NESTING);
 
+		// validate buffers
+		// -- buffers must be validated earliest because bufferViews relies on it
+		$required_buffers = ["byteLength" => 0];
+		$optional_buffers = ["name" => "", "extensions" => [], "extras" => []];
+		if(!$binary){
+			count($buffers) === 0 || throw new InvalidArgumentException("Supplied buffer array must be empty for non-binary specification, got " . count($buffers) . " entries", self::ERR_INVALID_SCHEMA);
+			$required_buffers["uri"] = "";
+		}
+		if(isset($properties["buffers"])){
+			foreach($properties["buffers"] as $index => $entry){
+				self::validateJsonSchema($entry, $required_buffers);
+				self::validateJsonSchema($entry, $required_buffers + $optional_buffers, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}");
+				if(!$binary){
+					$buffer = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"]);
+					$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [self::BUFFER_UNRESOLVED, [$entry["uri"], $entry["byteLength"]]];
+				}else{
+					$index === 0 || throw new InvalidArgumentException("Binary specification must define only one buffer, got a buffer at index {$index}", self::ERR_INVALID_SCHEMA);
+					isset($buffers[$index]) || throw new InvalidArgumentException("Binary specification must pre-define buffers", self::ERR_INVALID_SCHEMA);
+					$buffers[$index][0] === self::BUFFER_RESOLVED || throw new InvalidArgumentException("Expected binary specification buffer to be resolved, got unresolved {$buffers[$index][1][0]}", self::ERR_INVALID_SCHEMA);
+				}
+			}
+		}
+
+		// validate bufferViews
+		// -- buffer views need to be validated early because 'accessors' and 'images' rely on them
+		$required_buffer_views = ["buffer" => 0, "byteLength" => 0];
+		$optional_buffer_views = ["byteOffset" => 0, "byteStride" => 0, "target" => 0, "name" => "", "extensions" => [], "extras" => []];
+		$buffer_views = [];
+		if(isset($properties["bufferViews"])){
+			foreach($properties["bufferViews"] as $entry){
+				self::validateJsonSchema($entry, $required_buffer_views);
+				self::validateJsonSchema($entry, $required_buffer_views + $optional_buffer_views, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				isset($buffers[$entry["buffer"]]) || throw new InvalidArgumentException("Expected 'buffer' >= 0, < " . count($buffers) . ", got {$entry["buffer"]}", self::ERR_INVALID_SCHEMA);
+				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}", self::ERR_INVALID_SCHEMA);
+
+				!isset($entry["byteOffset"]) || $entry["byteOffset"] >= 0 || throw new InvalidArgumentException("Expected 'byteOffset' >= 0, got {$entry["byteOffset"]}", self::ERR_INVALID_SCHEMA);
+				!isset($entry["byteStride"]) || ($entry["byteStride"] >= 4 && $entry["byteStride"] <= 252) || throw new InvalidArgumentException("Expected 'byteStride' >= 4, <= 252, got {$entry["byteStride"]}", self::ERR_INVALID_SCHEMA);
+				!isset($entry["target"]) || $entry["target"] === 34962 || $entry["target"] === 34963 || throw new InvalidArgumentException("Expected 'target' to be one of: 34962, 34963, got {$entry["target"]}", self::ERR_INVALID_SCHEMA);
+				$buffer_views[] = $entry;
+			}
+		}
+
 		// validate accessors
 		$required_accessors = ["componentType" => 0, "count" => 0, "type" => ""];
 		$optional_accessors = [
@@ -275,31 +350,50 @@ final class GLTFParser{
 		];
 		$required_sparse = ["count" => 0, "indices" => [], "values" => []];
 		$optional_sparse = ["extensions" => [], "extras" => []];
+		$required_sparse_indices = ["bufferView" => 0, "componentType" => 0];
+		$optional_sparse_indices = ["byteOffset" => 0, "extensions" => [], "extras" => []];
+		$required_sparse_values = ["bufferView" => 0];
+		$optional_sparse_values = ["byteOffset" => 0, "extensions" => [], "extras" => []];
 		foreach($properties["accessors"] as $entry){
 			self::validateJsonSchema($entry, $required_accessors);
 			self::validateJsonSchema($entry, $required_accessors + $optional_accessors, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 
+			$entry["count"] >= 1 || throw new InvalidArgumentException("Expected 'count' >= 1, got {$entry["count"]}", self::ERR_INVALID_SCHEMA);
+
+			$component_type = $entry["componentType"];
+			isset(self::COMPONENT_TYPES[$component_type]) || throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys(self::COMPONENT_TYPES)) . ", got {$component_type}", self::ERR_INVALID_SCHEMA);
+			!isset($entry["byteOffset"]) || $entry["byteOffset"] >= 0 || throw new InvalidArgumentException("Expected 'sparse.count' >= 0, got {$entry["byteOffset"]}", self::ERR_INVALID_SCHEMA);
+			if(isset($entry["normalized"]) && $entry["normalized"] && in_array(self::COMPONENT_TYPES[$component_type], ["FLOAT", "UNSIGNED_INT"], true)){
+				throw new InvalidArgumentException("Expected 'normalized' to be false when component type is {$component_type}", self::ERR_INVALID_SCHEMA);
+			}
+			$component_size = self::COMPONENT_SIZES[$component_type];
+			$component_count = match($entry["type"]){
+				"SCALAR" => 1,
+				"VEC2" => 2,
+				"VEC3" => 3,
+				"VEC4" => 4,
+				"MAT2" => 2 * 2,
+				"MAT3" => 3 * 3,
+				"MAT4" => 4 * 4,
+				default => throw new InvalidArgumentException("Expected accessor type to be one of: SCALAR, VEC2, VEC3, VEC4, MAT2, MAT3, MAT4, got '{$entry["type"]}'", self::ERR_INVALID_SCHEMA)
+			};
+
 			// validate min, max
 			if(isset($entry["min"]) || isset($entry["max"])){
-				$length = match($entry["type"]){
-					"SCALAR" => 1,
-					"VEC2" => 2,
-					"VEC3" => 3,
-					"VEC4" => 4,
-					"MAT2" => 2 * 2,
-					"MAT3" => 3 * 3,
-					"MAT4" => 4 * 4,
-					default => throw new InvalidArgumentException("Expected accessor type to be one of: SCALAR, VEC2, VEC3, VEC4, MAT2, MAT3, MAT4, got '{$entry["type"]}'")
-				};
-				$types = array_fill(0, $length, 0.0);
+				$types = array_fill(0, $component_count, 0.0);
 				self::validateJsonSchema($entry, ["min" => $types, "max" => $types]);
-				foreach($entry["min"] as $value){
-					!is_infinite($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in 'min' accessor entry");
-					!is_nan($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in 'min' accessor entry");
-				}
-				foreach($entry["max"] as $value){
-					!is_infinite($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in 'min' accessor entry");
-					!is_nan($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in 'min' accessor entry");
+				foreach([...$entry["min"], ...$entry["max"]] as $value){
+					!is_infinite($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
+					!is_nan($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
+					[$min, $max] = match(self::COMPONENT_TYPES[$component_type]){ // perhaps we should use unpack(pack()) to validate these values?
+						"BYTE" => [-0x7f - 1, 0x7f],
+						"UNSIGNED_BYTE" => [0, 0xff],
+						"SHORT" => [-0x7fff - 1, 0x7fff],
+						"UNSIGNED_SHORT" => [0, 0xffff],
+						"UNSIGNED_INT" => [0, 0xffffffff],
+						"FLOAT" => [-3.4028237 * (10 ** 38), 3.4028237 * (10 ** 38)]
+					};
+					($value >= $min && $value <= $max) || throw new InvalidArgumentException("Expected accessor entry to fall in range [{$min}, {$max}], got {$value}", self::ERR_INVALID_SCHEMA);
 				}
 			}
 
@@ -308,8 +402,95 @@ final class GLTFParser{
 				$sparse = $entry["sparse"];
 				self::validateJsonSchema($sparse, $required_sparse);
 				self::validateJsonSchema($sparse, $required_sparse + $optional_sparse, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				$sparse["count"] >= 1 || throw new InvalidArgumentException("Expected 'sparse.count' >= 1, got {$sparse["count"]}");
-				count($sparse["indices"]) === $sparse["count"] || throw new InvalidArgumentException("Expected 'sparse.indices' to contain {$sparse["count"]} items, got " . count($sparse["indices"]));
+				self::validateJsonSchema($sparse["indices"], $required_sparse_indices);
+				self::validateJsonSchema($sparse["indices"], $required_sparse_indices + $optional_sparse_indices, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				self::validateJsonSchema($sparse["values"], $required_sparse_values);
+				self::validateJsonSchema($sparse["values"], $required_sparse_values + $optional_sparse_values, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+
+				$sparse["count"] >= 1 || throw new InvalidArgumentException("Expected 'sparse.count' >= 1, got {$sparse["count"]}", self::ERR_INVALID_SCHEMA);
+				$sparse["count"] <= $entry["count"] || throw new InvalidArgumentException("Expected 'sparse.count' ({$sparse["count"]}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
+
+				// validate indices
+				$sparse_component_type = $sparse["indices"]["componentType"];
+				isset(self::COMPONENT_TYPES[$sparse_component_type]) || throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys(self::COMPONENT_TYPES)) . ", got {$sparse_component_type}", self::ERR_INVALID_SCHEMA);
+				$sparse_component_size = self::COMPONENT_SIZES[$sparse_component_type];
+				$index = $sparse["indices"]["bufferView"];
+				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$index];
+				!isset($view["byteStride"]) || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
+				!isset($view["target"]) || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
+
+				// validate if buffer view and the optional byteOffset align to the componentType byte length
+				$offset_accessor = $sparse["indices"]["byteOffset"] ?? 0;
+				$offset_view = $view["byteOffset"] ?? 0;
+				($offset_accessor + $offset_view) % $sparse_component_size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '" . self::COMPONENT_TYPES[$sparse_component_size] . "' ({$sparse_component_size})", self::ERR_INVALID_SCHEMA);
+
+				$buffers[$view["buffer"]][0] === self::BUFFER_RESOLVED || throw new InvalidArgumentException("Sparse indices points to an unresolved buffer ({$view["buffer"]}): {$buffers[$view["buffer"]][1][0]}", self::ERR_INVALID_SCHEMA);
+				$indices = unpack(match(self::COMPONENT_TYPES[$sparse_component_type]){
+					"UNSIGNED_BYTE" => "C",
+					"UNSIGNED_SHORT" => "v",
+					"UNSIGNED_INT" => "V",
+					default => throw new InvalidArgumentException("Expected 'componentType' to be one of: UNSIGNED_BYTE, UNSIGNED_SHORT, UNSIGNED_INT, got " . self::COMPONENT_TYPES[$sparse_component_type], self::ERR_INVALID_SCHEMA)
+				} . "{$sparse["count"]}/", $buffers[$view["buffer"]][1], $offset_accessor + $offset_view);
+				$indices = array_values($indices);
+				foreach($indices as $index => $value){
+					$value < $entry["count"] || throw new InvalidArgumentException("Expected sparse.indices ({$value}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
+					if($index > 0 && $value < $indices[$index - 1]){
+						throw new InvalidArgumentException("Expected sparse indices to strictly increase, got {$value} < {$indices[$index - 1]}", self::ERR_INVALID_SCHEMA);
+					}
+				}
+
+				// validate values
+				$index = $sparse["values"]["bufferView"];
+				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$index];
+				!isset($view["byteStride"]) || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
+				!isset($view["target"]) || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
+
+				// validate if buffer view and the optional byteOffset align to the componentType byte length
+				$offset_accessor = $sparse["values"]["byteOffset"] ?? 0;
+				$offset_view = $view["byteOffset"] ?? 0;
+				($offset_accessor + $offset_view) % $component_size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of component '" . self::COMPONENT_TYPES[$component_type] . "' ({$component_size})", self::ERR_INVALID_SCHEMA);
+
+				$values = unpack(match(self::COMPONENT_TYPES[$component_type]){
+					"BYTE" => "c",
+					"UNSIGNED_BYTE" => "C",
+					"SHORT" => "s",
+					"UNSIGNED_SHORT" => "v",
+					"UNSIGNED_INT" => "V",
+					"FLOAT" => "g"
+				} . "{$sparse["count"]}/", $buffers[$view["buffer"]][1], $offset_accessor + $offset_view);
+				$values = array_values($values);
+				$sparse = array_combine($indices, $values);
+			}else{
+				$sparse = array_fill(0, $entry["count"] * $component_size, 0);
+			}
+
+			if(isset($entry["bufferView"])){
+				$index = $entry["bufferView"];
+				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$index];
+
+				// validate if buffer view and the optional byteOffset align to the componentType byte length
+				$offset_accessor = $entry["byteOffset"] ?? 0;
+				$offset_view = $view["byteOffset"] ?? 0;
+				($offset_accessor + $offset_view) % $component_size === 0 || throw new InvalidArgumentException("Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of accessor component '" . self::COMPONENT_TYPES[$component_type] . "' ({$component_size})", self::ERR_INVALID_SCHEMA);
+				!isset($view["byteStride"]) || $view["byteStride"] % $component_size === 0 || throw new InvalidArgumentException("Expected byte stride of view ({$view["byteStride"]}) to be a multiple of size of accessor component '" . self::COMPONENT_TYPES[$component_type] . "' ({$component_size})", self::ERR_INVALID_SCHEMA);
+
+				$EFFECTIVE_BYTE_STRIDE = $view["byteStride"] ?? 0;
+				$fitness = $offset_accessor + $EFFECTIVE_BYTE_STRIDE * ($entry["count"] - 1) + $component_size * $component_count;
+				$fitness <= $view["byteLength"] || throw new InvalidArgumentException("Expected accessor fitness ({$fitness}) <= buffer view length ({$view["byteLength"]})", self::ERR_INVALID_SCHEMA);
+
+				$values = unpack(match(self::COMPONENT_TYPES[$component_type]){
+					"BYTE" => "c",
+					"UNSIGNED_BYTE" => "C",
+					"SHORT" => "s",
+					"UNSIGNED_SHORT" => "v",
+					"UNSIGNED_INT" => "V",
+					"FLOAT" => "g"
+				} . "{$entry["count"]}/", $buffers[$view["buffer"]][1], $offset_accessor + $offset_view);
+				$values = array_values($values);
+				// TODO: perform $sparse substitution for $values
 			}
 		}
 
@@ -327,47 +508,34 @@ final class GLTFParser{
 			}
 		}
 
-		// validate buffers
-		$required_buffers = ["byteLength" => 0];
-		$optional_buffers = ["name" => "", "extensions" => [], "extras" => []];
-		if(!$binary){
-			$required_buffers["uri"] = "";
-		}
-		if(isset($properties["buffers"])){
-			foreach($properties["buffers"] as $entry){
-				self::validateJsonSchema($entry, $required_buffers);
-				self::validateJsonSchema($entry, $required_buffers + $optional_buffers, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}");
+		// validate images
+		$optional_images = ["uri" => "", "mimeType" => "", "bufferView" => 0, "name" => "", "extensions" => [], "extras" => []];
+		$image_buffers = [];
+		if(isset($properties["images"])){
+			foreach($properties["images"] as $entry){
+				self::validateJsonSchema($entry, $optional_images, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				!isset($entry["uri"], $entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got both", self::ERR_INVALID_SCHEMA);
+				isset($entry["uri"]) || isset($entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got neither", self::ERR_INVALID_SCHEMA);
+				if(isset($entry["bufferView"])){
+					$entry["bufferView"] >= 0 || throw new InvalidArgumentException("Expected 'bufferView' >= 0, got {$entry["bufferView"]}", self::ERR_INVALID_SCHEMA);
+					isset($entry["mimeType"]) || throw new InvalidArgumentException("Expected 'mimeType' to be defined when 'bufferView' is defined", self::ERR_INVALID_SCHEMA);
+					$entry["mimeType"] === "image/jpeg" || $entry["mimeType"] === "image/png" || throw new InvalidArgumentException("Expected 'mimeType' to be one of: image/jpeg, image/png, got {$entry["mimeType"]}", self::ERR_INVALID_SCHEMA);
+
+					$index = $entry["bufferView"];
+					isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$index}", self::ERR_INVALID_SCHEMA);
+					$view = $buffer_views[$index];
+					if($buffers[$view["buffer"]][0] === self::BUFFER_RESOLVED){
+						$image_buffers[] = [self::BUFFER_RESOLVED, substr($buffers[$view["buffer"]][1], $view["byteOffset"] ?? 0, $view["byteLength"])];
+					}else{
+						$image_buffers[] = [self::BUFFER_UNRESOLVED, $view];
+					}
+				}else{
+					$buffer = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, null);
+					$image_buffers[] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [self::BUFFER_UNRESOLVED, [$entry["uri"], null]];
+				}
 			}
 		}
-
-		if(!$binary){
-			count($buffers) === 0 || throw new InvalidArgumentException("Supplied buffer array must be empty for non-binary specification, got " . count($buffers) . " entries");
-			$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $this->directory : null;
-			$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
-			foreach($properties["buffers"] as $index => ["uri" => $uri, "byteLength" => $length]){
-				$buffer = $this->resolveURI($uri, $relative_dir, $resolve_remote, $length);
-				$buffers[$index] = $buffer !== null ? [self::BUFFER_RESOLVED, $buffer] : [self::BUFFER_UNRESOLVED, [$uri, $length]];
-			}
-		}
-
-		// validate bufferViews
-		$required_buffer_views = ["buffer" => 0, "byteLength" => 0];
-		$optional_buffer_views = ["byteOffset" => 0, "byteStride" => 0, "target" => 0, "name" => "", "extensions" => [], "extras" => []];
-		if(isset($properties["bufferViews"])){
-			foreach($properties["bufferViews"] as $entry){
-				self::validateJsonSchema($entry, $required_buffer_views);
-				self::validateJsonSchema($entry, $required_buffer_views + $optional_buffer_views, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				$entry["buffer"] >= 0 || throw new InvalidArgumentException("Expected 'buffer' >= 0, got {$entry["buffer"]}");
-				$entry["byteLength"] >= 1 || throw new InvalidArgumentException("Expected 'byteLength' >= 1, got {$entry["byteLength"]}");
-
-				!isset($entry["byteOffset"]) || $entry["byteOffset"] >= 0 || throw new InvalidArgumentException("Expected 'byteOffset' >= 0, got {$entry["byteOffset"]}");
-				!isset($entry["byteStride"]) || ($entry["byteStride"] >= 4 && $entry["byteStride"] <= 252) || throw new InvalidArgumentException("Expected 'byteStride' >= 4, <= 252, got {$entry["byteStride"]}");
-				!isset($entry["target"]) || $entry["target"] === 34962 || $entry["target"] === 34963 || throw new InvalidArgumentException("Expected 'target' to be one of: 34962, 34963, got {$entry["target"]}");
-			}
-		}
-
-		return $buffers;
+		return [$buffers, $buffer_views, $image_buffers];
 	}
 
 	/**
@@ -378,10 +546,10 @@ final class GLTFParser{
 	 * @param string $uri the URI to resolve
 	 * @param string|null $base_directory the base directory for relative URI paths
 	 * @param bool $resolve_remote whether to resolve remote URIs (e.g., http://, https://, etc.)
-	 * @param int $length the length of bytes of the resolved buffer
+	 * @param int|null $length the length of bytes of the resolved buffer, or null to ignore length constraints
 	 * @return string|null the returned raw buffer (byte array), or null if the options disallow this resolution
 	 */
-	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, int $length) : ?string{
+	public function resolveURI(string $uri, ?string $base_directory, bool $resolve_remote, ?int $length = null) : ?string{
 		if(str_starts_with($uri, "data:")){
 			$token_end = strpos($uri, ",", 5);
 			if($token_end === false || $token_end > 64){
@@ -392,12 +560,17 @@ final class GLTFParser{
 			if($uri_type === "application/octet-stream"){
 				return urldecode($uri_data);
 			}
-			if($uri_type === "application/octet-stream;base64" || $uri_type === "application/gltf-buffer;base64"){
-				$result = base64_decode($uri_type);
-				$result !== false || throw new InvalidArgumentException("Improperly encoded base64 data supplied for URI type {$uri_type}");
+			if(in_array($uri_type, [
+				"application/octet-stream;base64",
+				"application/gltf-buffer;base64",
+				"image/png;base64",
+				"image/jpeg;base64",
+			], true)){
+				$result = base64_decode($uri_data);
+				$result !== false || throw new InvalidArgumentException("Improperly encoded base64 data supplied for URI type {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED);
 				return $result;
 			}
-			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}");
+			throw new InvalidArgumentException("Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED);
 		}
 		if(filter_var($uri, FILTER_VALIDATE_URL)){
 			if(!$resolve_remote){
@@ -405,18 +578,18 @@ final class GLTFParser{
 			}
 			// TODO: Validate return type, HTTP response code
 			$data = file_get_contents($uri, length: $length);
-			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}");
+			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_REMOTE);
 			return $data;
 		}
 		if($base_directory === null){
 			return null;
 		}
 		$path = $base_directory . DIRECTORY_SEPARATOR . urldecode($uri);
-		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}");
+		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}", self::ERR_URI_RESOLUTION_LOCAL);
 		$ext = pathinfo($path, PATHINFO_EXTENSION);
-		in_array($ext, self::ALLOWED_URI_EXTENSIONS, true) || throw new InvalidArgumentException("Expected file extension to be one of: " . implode(", ", self::ALLOWED_URI_EXTENSIONS) . ", got {$ext}");
+		in_array($ext, self::ALLOWED_URI_EXTENSIONS, true) || throw new InvalidArgumentException("Expected file extension to be one of: " . implode(", ", self::ALLOWED_URI_EXTENSIONS) . ", got {$ext}", self::ERR_URI_RESOLUTION_LOCAL);
 		$data = file_get_contents($path, length: $length);
-		$data !== false || throw new InvalidArgumentException("Local resolution failed for uri: {$uri}");
+		$data !== false || throw new InvalidArgumentException("Local resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_LOCAL);
 		return $data;
 	}
 
