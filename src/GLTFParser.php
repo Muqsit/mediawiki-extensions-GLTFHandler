@@ -68,8 +68,11 @@ final class GLTFParser{
 		5126 => 4
 	];
 
+	/** @var int pertains to glTF header - this value is same as unpack("V", "glTF")[1] */
 	public const HEADER_MAGIC = 0x46546C67;
+	/** @var int type of GLB chunk - contains JSON data in payload */
 	public const CHUNK_JSON = 0x4E4F534A;
+	/** @var int type of GLB chunk - contains a binary blob in payload */
 	public const CHUNK_BIN = 0x004E4942;
 
 	/** @var int whether the file type is binary (GLB) */
