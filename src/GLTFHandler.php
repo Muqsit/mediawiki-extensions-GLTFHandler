@@ -2,6 +2,8 @@
 
 namespace MediaWiki\Extension\GLTFHandler;
 
+use InvalidArgumentException;
+use MediaWiki\Status\Status;
 use function array_combine;
 use function array_filter;
 use function count;
@@ -17,10 +19,14 @@ class GLTFHandler extends \MediaHandler {
 	/**
 	 * @param \MediaHandlerState $state
 	 * @param string $path
-	 * @return array
+	 * @return array|null
 	 */
 	public function getSizeAndMetadata($state, $path){
-		$parser = new GLTFParser($path);
+		try{
+			$parser = new GLTFParser($path);
+		}catch(InvalidArgumentException){
+			return null;
+		}
 		$dims = $parser->computeModelDimensions();
 
 		$width = max($dims[0], $dims[2]);
@@ -37,6 +43,20 @@ class GLTFHandler extends \MediaHandler {
 		$width *= 400;
 		$height *= 400;
 		return ["width" => $width, "height" => $height, "metadata" => $parser->getMetadata()];
+	}
+
+	public function verifyUpload( $fileName ) {
+		try{ new GLTFParser($fileName); }catch(InvalidArgumentException $e){
+			return Status::newFatal(match($e->getCode()){
+				GLTFParser::ERR_UNSUPPORTED_VERSION => "gltfhandler-error-unsupportedversion",
+				GLTFParser::ERR_INVALID_SCHEMA => "gltfhandler-error-invalidschema",
+				GLTFParser::ERR_URI_RESOLUTION_EMBEDDED => "gltfhandler-error-uriresolutionembedded",
+				GLTFParser::ERR_URI_RESOLUTION_LOCAL => "gltfhandler-error-uriresolutionlocal",
+				GLTFParser::ERR_URI_RESOLUTION_REMOTE => "gltfhandler-error-uriresolutionremote",
+				default => "gltfhandler-error-unknown"
+			});
+		}
+		return parent::verifyUpload( $fileName );
 	}
 
 	/**

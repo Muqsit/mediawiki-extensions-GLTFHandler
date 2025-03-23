@@ -4,5 +4,11 @@
 			"Muqsit"
 		]
 	},
-	"gltfhandler-desc": "Adds support for GLTF files on MediaWiki"
+	"gltfhandler-desc": "Adds support for GLTF files on MediaWiki",
+	"gltfhandler-error-unknown": "The file contains improperly formatted glTF chunks.",
+	"gltfhandler-error-unsupportedversion": "The file has an glTF version that is currently not supported.",
+	"gltfhandler-error-invalidschema": "The file has improper glTF metadata.",
+	"gltfhandler-error-uriresolutionembedded": "The file contains invalid embedded resources.",
+	"gltfhandler-error-uriresolutionlocal": "The file points to a local resource that could not be accessed.",
+	"gltfhandler-error-uriresolutionremote":  "The file points to a remote resource that could not be accessed."
 }
