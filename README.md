@@ -57,3 +57,10 @@ Example usage of optional parameters:
 [[File:MyModel.glb|ar|environment=SomeEnvironment.png|poster=SomePoster.png]]
 [[File:MyModel.glb|camera-orbit=-30deg 90deg 22|skybox=SomeSkybox.jpg|skybox-height=1.5m]]
 ```
+
+## Gallery
+<p float="left">
+   <img src="https://github.com/user-attachments/assets/fcb849c2-d892-41cc-98aa-2fcb8af32877"/>
+   <img src="https://github.com/user-attachments/assets/3235b111-cf74-433c-b5fd-d13177bcb9c5" />
+   <img src="https://github.com/user-attachments/assets/7f9b2dcf-63bd-4279-bf03-1e227a58cd3c" />
+</p>
