@@ -4,6 +4,12 @@ It uses [google/model-viewer](https://github.com/google/model-viewer) library to
 your environment using augmented reality (on supported devices). For developers, a documentation of the glTF parser's
 capabilities can be found [here](src/Parser/README.md).
 
+## Motive
+Existing 3D extensions in the MediaWiki ecosphere do not support the glTF format which has become the standard for
+scenes and models. glTF libraries in PHP are lacking (if not non-existent), requiring site maintainers to install third
+party libraries (in addition to the extension) for validate 3D assets. This makes the installation process inconvenient,
+and at times sufficiently challenging.
+
 ## Features
 - Work out of the box—no dependency installation needed
 - Support .gltf and .glb files

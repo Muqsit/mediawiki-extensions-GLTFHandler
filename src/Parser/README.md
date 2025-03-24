@@ -4,7 +4,7 @@ GLTFParser is a standalone glTF v2.0 file parser library written for the GLTFHan
 ## Features
 - Written in native PHP using standard libraries.
 - Reads both .gltf and .glb file formats.
-- Supports parser flags to restrict local URI resolution and separately remote URI resolution. <small>[see [parse and validate](#Parse and validate) for usage]</small>
+- Supports parser flags to restrict local URI resolution and separately remote URI resolution. <small>[see [parse and validate](#Parse-and-validate) for usage]</small>
 - Export feature to convert GLTF and GLB files into an embedded portable GLB, resolving all URI references.
 - Utility functions for rendering and setting upload restrictions:
   <br/><small>[see [usage](#Usage) for example code and sample outputs]</small>
