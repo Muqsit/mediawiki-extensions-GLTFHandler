@@ -35,16 +35,6 @@ final class Matrix{
 		return $result;
 	}
 
-	public static function multiplyVector(array $matrix, array $vector, int $size) : array{
-		$result = array_fill(0, $size, 0);
-		for($row = 0; $row < $size; $row++){
-			for($k = 0; $k < $size; $k++){
-				$result[$row] += $matrix[$row * $size + $k] * $vector[$k];
-			}
-		}
-		return $result;
-	}
-
 	public static function quaternionToRotation(array $matrix) : array{
 		[$x, $y, $z, $w] = $matrix;
 		return [
