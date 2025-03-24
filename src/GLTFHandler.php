@@ -43,7 +43,15 @@ class GLTFHandler extends \MediaHandler {
 
 		$width *= 400;
 		$height *= 400;
-		return ["width" => $width, "height" => $height, "metadata" => $parser->getMetadata()];
+
+		$metadata = ["version" => $parser->version];
+		if($parser->copyright !== null){
+			$metadata["copyright"] = $parser->copyright;
+		}
+		if($parser->generator !== null){
+			$metadata["generator"] = $parser->generator;
+		}
+		return ["width" => $width, "height" => $height, "metadata" => $metadata];
 	}
 
 	public function verifyUpload( $fileName ) {

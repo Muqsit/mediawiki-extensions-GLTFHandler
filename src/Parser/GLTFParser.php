@@ -166,6 +166,9 @@ final class GLTFParser{
 	/** @var list<array{GLTFComponentType, int, int, list<int|float>}> */
 	public array $accessor_values;
 
+	public ?string $copyright;
+	public ?string $generator;
+
 	/**
 	 * Parses the structure of a GLB or GLTF file.
 	 *
@@ -225,6 +228,10 @@ final class GLTFParser{
 		$this->buffer_views = $buffer_views;
 		$this->accessor_values = $accessor_values;
 		$this->image_buffers = $image_buffers;
+
+		// for easy access
+		$this->copyright = $this->properties["asset"]["copyright"] ?? null;
+		$this->generator = $this->properties["asset"]["generator"] ?? null;
 	}
 
 	/**
@@ -711,24 +718,6 @@ final class GLTFParser{
 		$y = array_column($values, 1);
 		$z = array_column($values, 2);
 		return [max($x) - min($x), max($y) - min($y), max($z) - min($z)];
-	}
-
-	/**
-	 * Returns a selected set of metadata properties from the parsed GLTF file.
-	 * TODO: Standardization - return necessary metadata instead of cherry-picking the properties.
-	 *
-	 * @return array{Copyright?: string, Generator?: string, Version: int}
-	 */
-	public function getMetadata() : array{
-		$metadata = [];
-		if(isset($this->properties["asset"]["copyright"])){
-			$metadata["Copyright"] = $this->properties["asset"]["copyright"];
-		}
-		if(isset($this->properties["asset"]["generator"])){
-			$metadata["Generator"] = $this->properties["asset"]["generator"];
-		}
-		$metadata["Version"] = $this->version;
-		return $metadata;
 	}
 
 	/**
