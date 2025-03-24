@@ -1,5 +1,17 @@
 {
+	"name": "muqsit/gltfhandler",
+	"type": "mediawiki-extension",
+	"description": "Embed 3D GLTF models (.glb and .glft files) on MediaWiki",
+	"keywords": ["gltf", "glb", "MediaWiki", "extension"],
 	"homepage": "https://www.mediawiki.org/wiki/Extension:GLTFHandler",
+	"license": "GPL-2.0-or-later",
+	"authors": [
+		{
+			"name": "Muqsit",
+			"email": "notmuqsit@gmail.com",
+			"role": "Developer"
+		}
+	],
 	"require-dev": {
 		"mediawiki/mediawiki-codesniffer": "46.0.0",
 		"mediawiki/mediawiki-phan-config": "0.15.1",
