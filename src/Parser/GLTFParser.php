@@ -721,18 +721,18 @@ final class GLTFParser{
 	}
 
 	/**
-	 * Returns a raw GLB bytes representation of the glTF file. This is useful when generating a 'portable' glTF file is
-	 * necessary. Resolved remote and local filesystem buffers and images are embedded directly.
+	 * Returns a raw GLB bytes representation of the glTF file with all resources embedded. This is useful to generate a
+	 * 'portable' glTF file. Resolved remote and local filesystem buffers and images are embedded directly.
 	 *
 	 * Example usage:
-	 *   // convert GLTF to GLB (GLBs are always self-contained / embedded)
-	 *   $parser = new GLTFParser("model2.gltf");
-	 *   $contents = $parser->exportBinary();
-	 *   file_put_contents("model2.glb", $contents);
+	 *   // convert GLTF to GLB
+	 *   $parser = new GLTFParser("model.gltf");
+	 *   $contents = $parser->exportEmbeddedBinary();
+	 *   file_put_contents("model.glb", $contents);
 	 *
 	 * @return string
 	 */
-	public function exportBinary() : string{
+	public function exportEmbeddedBinary() : string{
 		foreach($this->buffers as $index => $buffer){
 			$buffer->value ?? throw new InvalidArgumentException("Buffer at index {$index} is unresolved (" . substr($buffer->uri, 0, 64) . ")");
 		}
