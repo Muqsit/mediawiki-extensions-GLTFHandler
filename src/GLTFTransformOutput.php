@@ -35,6 +35,7 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 		$attributes = ["shadow-intensity" => "1", "camera-controls" => true, "touch-action" => "pan-y"];
 		$attributes["ar"] = isset($this->pParams["ar"]);
 		$attributes["camera-orbit"] = $this->pParams["camera-orbit"] ?? null;
+		$attributes["max-camera-orbit"] = $this->pParams["max-camera-orbit"] ?? null;
 		$attributes["loading"] = "eager";
 		$attributes["skybox-height"] = $this->pParams["skybox-height"] ?? null;
 		$attributes["src"] = $this->pSourceFileURL;
