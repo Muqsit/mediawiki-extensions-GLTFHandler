@@ -97,12 +97,14 @@ final class GLTFParser{
 	public const ERR_UNSUPPORTED_VERSION = 100000;
 	/** @var int file metadata (glTF properties) is improperly formatted */
 	public const ERR_INVALID_SCHEMA = 100001;
+	/** @var int input file could not be opened or read. not thrown when accessing local filesystem URIs */
+	public const ERR_IO = 100002;
 	/** @var int a URI to an embedded resource (e.g., data:application/octet-stream) could not successfully be read */
-	public const ERR_URI_RESOLUTION_EMBEDDED = 100002;
+	public const ERR_URI_RESOLUTION_EMBEDDED = 100003;
 	/** @var int a URI to a local resource (i.e., a local file) could not successfully be read */
-	public const ERR_URI_RESOLUTION_LOCAL = 100003;
+	public const ERR_URI_RESOLUTION_LOCAL = 100004;
 	/** @var int a URI to a remote resource (e.g., https://...) could not successfully be read */
-	public const ERR_URI_RESOLUTION_REMOTE = 100004;
+	public const ERR_URI_RESOLUTION_REMOTE = 100005;
 
 	/**
 	 * Infer file format (GLTF vs. GLB) by reading the first 4 bytes from the file.
@@ -112,8 +114,10 @@ final class GLTFParser{
 	 */
 	public static function inferBinary(string $path) : bool{
 		$resource = fopen($path, "rb");
+		$resource !== false || throw new InvalidArgumentException("Could not open file: {$path}", self::ERR_IO);
 		try{
 			$structure = fread($resource, 4);
+			$structure !== false || throw new InvalidArgumentException("Could not read file: {$path}", self::ERR_IO);
 		}finally{
 			fclose($resource);
 		}
@@ -143,6 +147,7 @@ final class GLTFParser{
 	public array $component_registry;
 
 	public finfo $mime_checker;
+	public string $path;
 	public string $directory;
 	public bool $binary;
 	public int $version;
@@ -170,6 +175,7 @@ final class GLTFParser{
 	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
 		$this->mime_checker = new finfo(FILEINFO_MIME_TYPE);
 		$this->component_registry = GLTFComponentType::registry();
+		$this->path = $path;
 
 		$directory = dirname($path); // needed for buffer resolution (when URIs are encountered)
 		$binary = match(true){
@@ -179,7 +185,7 @@ final class GLTFParser{
 		};
 		if($binary){
 			$resource = fopen($path, "rb");
-			$resource !== false || throw new InvalidArgumentException("Failed to open file {$path}");
+			$resource !== false || throw new InvalidArgumentException("Could not open file: {$path}", self::ERR_IO);
 			try{
 				[$version, $length] = $this->readHeaderGlb($resource);
 				$properties = $this->readChunkGlb($resource, self::CHUNK_JSON);
@@ -195,6 +201,7 @@ final class GLTFParser{
 			}
 		}else{
 			$contents = file_get_contents($path);
+			$contents !== false || throw new InvalidArgumentException("Could not read file: {$path}", self::ERR_IO);
 			$length = strlen($contents);
 			$contents = self::decodeJsonArray($contents);
 			$version = (int) $contents["asset"]["version"];
@@ -228,6 +235,7 @@ final class GLTFParser{
 	 */
 	private function readHeaderGlb($resource) : array{
 		$header = fread($resource, 12);
+		$header !== false || throw new InvalidArgumentException("Could not read file: {$this->path}", self::ERR_IO);
 		$decoded = unpack("V3h/", $header);
 		$magic = $decoded["h1"];
 		$version = $decoded["h2"];
@@ -245,17 +253,20 @@ final class GLTFParser{
 	 */
 	public function readChunkGlb($resource, int $expected_type) : array|string|null{
 		$structure = fread($resource, 8);
+		$structure !== false || throw new InvalidArgumentException("Could not read file: {$this->path}", self::ERR_IO);
 		$decoded = unpack("V2s/", $structure);
 		$length = $decoded["s1"];
 		$type = $decoded["s2"];
 		$type === $expected_type || throw new InvalidArgumentException("Unexpected chunk type ({$type}), expected {$expected_type}");
 		if($type === self::CHUNK_JSON){
 			$data = fread($resource, $length);
-			$data = self::decodeJsonArray($data);
-			return $data;
+			$data !== false || throw new InvalidArgumentException("Could not read file: {$this->path}", self::ERR_IO);
+			return self::decodeJsonArray($data);
 		}
 		if($type === self::CHUNK_BIN){
-			return fread($resource, $length);
+			$data = fread($resource, $length);
+			$data !== false || throw new InvalidArgumentException("Could not read file: {$this->path}", self::ERR_IO);
+			return $data;
 		}
 		// do not read into memory chunk of unknown types, only move offset to the end of chunk.
 		// according to gltf spec: Client implementations MUST ignore chunks with unknown types to enable glTF
