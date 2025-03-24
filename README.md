@@ -4,11 +4,12 @@ It uses [google/model-viewer](https://github.com/google/model-viewer) library to
 your environment using augmented reality (on supported devices).
 
 ## Features
+- Work out of the box—no dependency installation needed
 - Support .gltf and .glb files
 - Validate structure of .gltf and .glb files
-- Calculate model bounding box to properly size output canvas
-- Allow custom output options for model-viewer
+- Bounding box calculation to properly size the output canvas
 - Use [google/model-viewer](https://github.com/google/model-viewer) library to render 3D models, which supports all evergreen desktop and mobile browsers—Chrome, Firefox, Safari, and Edge.
+- Allow custom output options for model-viewer (see [usage](#Usage))
 
 ## Installation
 Requires **MediaWiki 1.42.0** or later.
