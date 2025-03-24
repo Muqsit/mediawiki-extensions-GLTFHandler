@@ -6,7 +6,6 @@ use finfo;
 use InvalidArgumentException;
 use JsonException;
 use function array_column;
-use function array_diff_key;
 use function array_fill;
 use function array_keys;
 use function array_slice;
@@ -29,7 +28,6 @@ use function implode;
 use function in_array;
 use function is_array;
 use function is_file;
-use function is_float;
 use function is_infinite;
 use function is_int;
 use function is_nan;
@@ -139,67 +137,6 @@ final class GLTFParser{
 		}
 		is_array($result) || throw new InvalidArgumentException("Expected JSON data to be of type array, got " . gettype($result));
 		return $result;
-	}
-
-	/** @var int all keys are optional - do not bail if key does not exist */
-	public const SCHEMA_OPTIONAL = 1 << 0;
-	/** @var int bail upon encountering a key that is not defined in schema */
-	public const SCHEMA_REPORT_UNKNOWN_KEYS = 1 << 1;
-	/** @var int do not nest - only validate the parent level */
-	public const SCHEMA_NO_NESTING = 1 << 2;
-
-	/**
-	 * @param mixed $json a parsed json output
-	 * @param array $schema a schema detailing structure and type
-	 * @param list<string|int> $base base directory to move to in $json
-	 * @param int-mask-of<self::SCHEMA_*> $flags
-	 */
-	private static function validateJsonSchema(mixed $json, array $schema, array $base = [], int $flags = 0) : void{
-		$optional = ($flags & self::SCHEMA_OPTIONAL) > 0;
-		$report_unknown_k = ($flags & self::SCHEMA_REPORT_UNKNOWN_KEYS) > 0;
-		$nesting = ($flags & self::SCHEMA_NO_NESTING) === 0;
-
-		foreach($base as $offset => $key){
-			is_array($json) || throw new InvalidArgumentException("Directory /" . implode("/", array_slice($base, 0, $offset + 1)) . " must be an array", self::ERR_INVALID_SCHEMA);
-			isset($json[$key]) || throw new InvalidArgumentException("Directory /" . implode("/", array_slice($base, 0, $offset + 1)) . " must be set", self::ERR_INVALID_SCHEMA);
-			$json = $json[$key];
-		}
-
-		$buffer = [];
-		foreach($schema as $k => $v){
-			$buffer[] = [[$k], $v, 0, $base];
-		}
-		$index = 0;
-		while(isset($buffer[$index])){
-			[$keys, $expect, $depth, $directory] = $buffer[$index++];
-			$sub_schema = $schema;
-			$value = $json;
-			$directory_cur = $directory;
-			foreach($keys as $key){
-				$directory_cur[] = $key;
-				is_array($value) || throw new InvalidArgumentException("Directory /" . implode("/", $directory_cur) . " must be an array", self::ERR_INVALID_SCHEMA);
-				if($report_unknown_k && is_array($sub_schema)){
-					$unknown_k = array_keys(array_diff_key($value, $sub_schema));
-					count($unknown_k) === 0 || throw new InvalidArgumentException("Unknown sub-directory encountered in /" . implode("/", $directory_cur) . ": [" . implode(", ", array_slice($unknown_k, 0, 8)) . "], expected one of: [" . implode(", ", array_keys($sub_schema)) . "]", self::ERR_INVALID_SCHEMA);
-				}
-				if($optional && !isset($value[$key])){
-					continue 2;
-				}
-				isset($value[$key]) || throw new InvalidArgumentException("Directory /" . implode("/", $directory_cur) . " must be set", self::ERR_INVALID_SCHEMA);
-				$value = $value[$key];
-				$sub_schema = $sub_schema[$key];
-			}
-			gettype($value) === gettype($expect) || (is_float($expect) && is_int($value)) || throw new InvalidArgumentException("Expected type of value at /" . implode("/", $directory_cur) . " to be " . gettype($expect) . ", got " . gettype($value), self::ERR_INVALID_SCHEMA);
-			if(is_array($expect) && $nesting){
-				foreach($expect as $k => $v){
-					$keys2 = $keys;
-					$keys2[] = $k;
-					$directory_next = $directory;
-					$directory_next[] = $k;
-					$buffer[] = [$keys2, $v, $depth + 1, $directory_next];
-				}
-			}
-		}
 	}
 
 	/** @var array<int, GLTFComponentType> */
@@ -353,8 +290,8 @@ final class GLTFParser{
 			"scenes" => [], "extensions" => [], "extensionsRequired" => [], "extensionsUsed" => [], "images" => [],
 			"textures" => [], "cameras" => [], "animations" => [], "samplers" => [], "skins" => []
 		];
-		self::validateJsonSchema($properties, $required);
-		self::validateJsonSchema($properties, $required + $optional, [], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS | self::SCHEMA_NO_NESTING);
+		JSONSchema::validate($properties, $required);
+		JSONSchema::validate($properties, $required + $optional, [], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS | JSONSchema::FLAG_NO_NESTING);
 
 		// validate buffers
 		// -- buffers must be validated earliest because bufferViews relies on it
@@ -366,8 +303,8 @@ final class GLTFParser{
 		}
 		if(isset($properties["buffers"])){
 			foreach($properties["buffers"] as $index => $entry){
-				self::validateJsonSchema($properties, $required_buffers, ["buffers", $index]);
-				self::validateJsonSchema($properties, $required_buffers + $optional_buffers, ["buffers", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $required_buffers, ["buffers", $index]);
+				JSONSchema::validate($properties, $required_buffers + $optional_buffers, ["buffers", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 				if(!$binary){
 					[$value, $mime] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"], self::ALLOWED_MIME_URI_BUFFER);
 					$buffers[$index] = new GLTFBuffer($value, $entry["byteLength"], $entry["uri"], $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
@@ -386,8 +323,8 @@ final class GLTFParser{
 		$buffer_views = [];
 		if(isset($properties["bufferViews"])){
 			foreach($properties["bufferViews"] as $index => $entry){
-				self::validateJsonSchema($properties, $required_buffer_views, ["bufferViews", $index]);
-				self::validateJsonSchema($properties, $required_buffer_views + $optional_buffer_views, ["bufferViews", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $required_buffer_views, ["bufferViews", $index]);
+				JSONSchema::validate($properties, $required_buffer_views + $optional_buffer_views, ["bufferViews", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 				$buffer_views[] = new GLTFBufferView($entry["buffer"], $entry["byteLength"], $entry["byteOffset"] ?? 0, $entry["byteStride"] ?? null, $entry["target"] ?? null, $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
 			}
 		}
@@ -430,8 +367,8 @@ final class GLTFParser{
 		$required_sparse_values = ["bufferView" => 0];
 		$optional_sparse_values = ["byteOffset" => 0, "extensions" => [], "extras" => []];
 		foreach($properties["accessors"] as $index => $entry){
-			self::validateJsonSchema($properties, $required_accessors, ["accessors", $index]);
-			self::validateJsonSchema($properties, $required_accessors + $optional_accessors, ["accessors", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+			JSONSchema::validate($properties, $required_accessors, ["accessors", $index]);
+			JSONSchema::validate($properties, $required_accessors + $optional_accessors, ["accessors", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 
 			$entry["count"] >= 1 || throw new InvalidArgumentException("Expected 'count' >= 1, got {$entry["count"]}", self::ERR_INVALID_SCHEMA);
 
@@ -445,7 +382,7 @@ final class GLTFParser{
 			// validate min, max
 			if(isset($entry["min"]) || isset($entry["max"])){
 				$types = array_fill(0, $component_count, 0.0);
-				self::validateJsonSchema($properties, ["min" => $types, "max" => $types], ["accessors", $index]);
+				JSONSchema::validate($properties, ["min" => $types, "max" => $types], ["accessors", $index]);
 				foreach([...$entry["min"], ...$entry["max"]] as $value){
 					!is_infinite($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
 					!is_nan($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
@@ -456,12 +393,12 @@ final class GLTFParser{
 			// validate sparse
 			if(isset($entry["sparse"])){
 				$sparse = $entry["sparse"];
-				self::validateJsonSchema($properties, $required_sparse, ["accessors", $index, "sparse"]);
-				self::validateJsonSchema($properties, $required_sparse + $optional_sparse, ["accessors", $index, "sparse"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				self::validateJsonSchema($properties, $required_sparse_indices, ["accessors", $index, "sparse", "indices"]);
-				self::validateJsonSchema($properties, $required_sparse_indices + $optional_sparse_indices, ["accessors", $index, "sparse", "indices"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				self::validateJsonSchema($properties, $required_sparse_values, ["accessors", $index, "sparse", "values"]);
-				self::validateJsonSchema($properties, $required_sparse_values + $optional_sparse_values, ["accessors", $index, "sparse", "values"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $required_sparse, ["accessors", $index, "sparse"]);
+				JSONSchema::validate($properties, $required_sparse + $optional_sparse, ["accessors", $index, "sparse"], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $required_sparse_indices, ["accessors", $index, "sparse", "indices"]);
+				JSONSchema::validate($properties, $required_sparse_indices + $optional_sparse_indices, ["accessors", $index, "sparse", "indices"], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $required_sparse_values, ["accessors", $index, "sparse", "values"]);
+				JSONSchema::validate($properties, $required_sparse_values + $optional_sparse_values, ["accessors", $index, "sparse", "values"], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 
 				$sparse["count"] >= 1 || throw new InvalidArgumentException("Expected 'sparse.count' >= 1, got {$sparse["count"]}", self::ERR_INVALID_SCHEMA);
 				$sparse["count"] <= $entry["count"] || throw new InvalidArgumentException("Expected 'sparse.count' ({$sparse["count"]}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
@@ -542,17 +479,17 @@ final class GLTFParser{
 			$accessor_values[] = [$component_type, $component_count, $entry["count"], $values];
 		}
 
-		self::validateJsonSchema($properties, [
+		JSONSchema::validate($properties, [
 			"version" => "", "copyright" => "", "generator" => "", "minVersion" => "", "extensions" => [], "extras" => []
-		], ["asset"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+		], ["asset"], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 
 		// validate animations
 		$required_animations = ["channels" => [], "samplers" => []];
 		$optional_animations = ["name" => "", "extensions" => [], "extras" => []];
 		if(isset($properties["animations"])){
 			foreach($properties["animations"] as $index => $entry){
-				self::validateJsonSchema($properties, $required_animations, ["animations", $index]);
-				self::validateJsonSchema($properties, $required_animations + $optional_animations, ["animations", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $required_animations, ["animations", $index]);
+				JSONSchema::validate($properties, $required_animations + $optional_animations, ["animations", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 			}
 		}
 
@@ -561,7 +498,7 @@ final class GLTFParser{
 		$image_buffers = [];
 		if(isset($properties["images"])){
 			foreach($properties["images"] as $index => $entry){
-				self::validateJsonSchema($properties, $optional_images, ["images", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				JSONSchema::validate($properties, $optional_images, ["images", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
 				!isset($entry["uri"], $entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got both", self::ERR_INVALID_SCHEMA);
 				isset($entry["uri"]) || isset($entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got neither", self::ERR_INVALID_SCHEMA);
 				if(isset($entry["bufferView"])){
