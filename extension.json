@@ -34,7 +34,7 @@
 			"dependencies": [],
 			"styles": [],
 			"messages": [],
-			"packageFiles": ["model-viewer.cjs.js", "model-viewer-dynsize.js"]
+			"packageFiles": ["model-viewer.cjs.min.js", "model-viewer-dynsize.js"]
 		}
 	},
 	"MediaHandlers": {
