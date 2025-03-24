@@ -141,10 +141,19 @@ final class GLTFParser{
 		return $result;
 	}
 
+	/** @var int all keys are optional - do not bail if key does not exist */
 	public const SCHEMA_OPTIONAL = 1 << 0;
+	/** @var int bail upon encountering a key that is not defined in schema */
 	public const SCHEMA_REPORT_UNKNOWN_KEYS = 1 << 1;
+	/** @var int do not nest - only validate the parent level */
 	public const SCHEMA_NO_NESTING = 1 << 2;
 
+	/**
+	 * @param mixed $json a parsed json output
+	 * @param array $schema a schema detailing structure and type
+	 * @param list<string|int> $base base directory to move to in $json
+	 * @param int-mask-of<self::SCHEMA_*> $flags
+	 */
 	private static function validateJsonSchema(mixed $json, array $schema, array $base = [], int $flags = 0) : void{
 		$optional = ($flags & self::SCHEMA_OPTIONAL) > 0;
 		$report_unknown_k = ($flags & self::SCHEMA_REPORT_UNKNOWN_KEYS) > 0;
