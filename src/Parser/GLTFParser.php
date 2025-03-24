@@ -26,6 +26,7 @@ use function fseek;
 use function gettype;
 use function implode;
 use function in_array;
+use function intdiv;
 use function is_array;
 use function is_file;
 use function is_infinite;
@@ -718,6 +719,50 @@ final class GLTFParser{
 		$y = array_column($values, 1);
 		$z = array_column($values, 2);
 		return [max($x) - min($x), max($y) - min($y), max($z) - min($z)];
+	}
+
+	/**
+	 * Computes glTF stats for report generation and returns attributes as reported by KhronosGroup/glTF-Validator.
+	 *
+	 * @link https://github.com/KhronosGroup/glTF-Validator/blob/bcd52cc4ba5f333b2999a58f67cc05ddf28b4fb1/lib/src/validation_result.dart
+	 * @return array{animationCount: int, drawCallCount: int, materialCount: int, totalTriangleCount: int,
+	 *     totalVertexCount: int}
+	 */
+	public function computeStats() : array{
+		$vertices = 0;
+		$triangles = 0;
+		$draw_calls = 0;
+		foreach($this->properties["meshes"] as $mesh){
+			$draw_calls += count($mesh["primitives"]);
+			foreach($mesh["primitives"] as $primitive){
+				if(!isset($primitive["attributes"]["POSITION"])){
+					continue;
+				}
+				if(isset($primitive["extensions"]) && count($primitive["extensions"]) > 0){
+					// extensions like KHR_draco_mesh_compression require further handling, otherwise we end up with
+					// incorrect accessor values.
+					continue;
+				}
+				[$comp_type, $comp_size, $n_comp, $comp_values] = $this->accessor_values[$primitive["attributes"]["POSITION"]];
+				$vertices += $n_comp;
+				if(isset($primitive["indices"])){
+					$n_indices = $this->accessor_values[$primitive["indices"]][2];
+					$mode = $primitive["mode"] ?? 4;
+					if($mode === 4){ // TRIANGLES
+						$triangles += intdiv($n_indices, 3);
+					}elseif($mode === 5 /* TRIANGLE_STRIP */ || $mode === 6 /* TRIANGLE_FAN */){ // TRIANGLE_STRIP
+						$triangles += $n_indices > 2 ? $n_indices - 2 : 0;
+					}
+				}
+			}
+		}
+		return [
+			"animationCount" => isset($this->properties["animations"]) ? count($this->properties["animations"]) : 0,
+			"drawCallCount" => $draw_calls,
+			"materialCount" => isset($this->properties["materials"]) ? count($this->properties["materials"]) : 0,
+			"totalTriangleCount" => $triangles,
+			"totalVertexCount" => $vertices
+		];
 	}
 
 	/**
