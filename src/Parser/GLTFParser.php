@@ -145,39 +145,49 @@ final class GLTFParser{
 	public const SCHEMA_REPORT_UNKNOWN_KEYS = 1 << 1;
 	public const SCHEMA_NO_NESTING = 1 << 2;
 
-	private static function validateJsonSchema(mixed $json, array $schema, int $flags = 0) : void{
+	private static function validateJsonSchema(mixed $json, array $schema, array $base = [], int $flags = 0) : void{
 		$optional = ($flags & self::SCHEMA_OPTIONAL) > 0;
 		$report_unknown_k = ($flags & self::SCHEMA_REPORT_UNKNOWN_KEYS) > 0;
 		$nesting = ($flags & self::SCHEMA_NO_NESTING) === 0;
 
+		foreach($base as $offset => $key){
+			is_array($json) || throw new InvalidArgumentException("Directory /" . implode("/", array_slice($base, 0, $offset + 1)) . " must be an array", self::ERR_INVALID_SCHEMA);
+			isset($json[$key]) || throw new InvalidArgumentException("Directory /" . implode("/", array_slice($base, 0, $offset + 1)) . " must be set", self::ERR_INVALID_SCHEMA);
+			$json = $json[$key];
+		}
+
 		$buffer = [];
 		foreach($schema as $k => $v){
-			$buffer[] = [[$k], $v, 0];
+			$buffer[] = [[$k], $v, 0, $base];
 		}
 		$index = 0;
 		while(isset($buffer[$index])){
-			[$keys, $expect, $depth] = $buffer[$index++];
+			[$keys, $expect, $depth, $directory] = $buffer[$index++];
 			$sub_schema = $schema;
 			$value = $json;
-			foreach($keys as $offset => $key){
-				is_array($value) || throw new InvalidArgumentException("Key '" . implode(".", array_slice($keys, 0, $offset + 1)) . "' must be an array", self::ERR_INVALID_SCHEMA);
+			$directory_cur = $directory;
+			foreach($keys as $key){
+				$directory_cur[] = $key;
+				is_array($value) || throw new InvalidArgumentException("Directory /" . implode("/", $directory_cur) . " must be an array", self::ERR_INVALID_SCHEMA);
 				if($report_unknown_k && is_array($sub_schema)){
 					$unknown_k = array_keys(array_diff_key($value, $sub_schema));
-					count($unknown_k) === 0 || throw new InvalidArgumentException("Unknown keys encountered in '" . implode(".", array_slice($keys, 0, $offset)) . "': [" . implode(", ", array_slice($unknown_k, 0, 8)) . "], expected one of: [" . implode(", ", array_keys($sub_schema)) . "]", self::ERR_INVALID_SCHEMA);
+					count($unknown_k) === 0 || throw new InvalidArgumentException("Unknown sub-directory encountered in /" . implode("/", $directory_cur) . ": [" . implode(", ", array_slice($unknown_k, 0, 8)) . "], expected one of: [" . implode(", ", array_keys($sub_schema)) . "]", self::ERR_INVALID_SCHEMA);
 				}
 				if($optional && !isset($value[$key])){
 					continue 2;
 				}
-				isset($value[$key]) || throw new InvalidArgumentException("Key '" . implode(".", array_slice($keys, 0, $offset + 1)) . "' must be set", self::ERR_INVALID_SCHEMA);
+				isset($value[$key]) || throw new InvalidArgumentException("Directory /" . implode("/", $directory_cur) . " must be set", self::ERR_INVALID_SCHEMA);
 				$value = $value[$key];
 				$sub_schema = $sub_schema[$key];
 			}
-			gettype($value) === gettype($expect) || (is_float($expect) && is_int($value)) || throw new InvalidArgumentException("Expected type of value at '" . implode(".", $keys) . "' to be " . gettype($expect) . ", got " . gettype($value), self::ERR_INVALID_SCHEMA);
+			gettype($value) === gettype($expect) || (is_float($expect) && is_int($value)) || throw new InvalidArgumentException("Expected type of value at /" . implode("/", $directory_cur) . " to be " . gettype($expect) . ", got " . gettype($value), self::ERR_INVALID_SCHEMA);
 			if(is_array($expect) && $nesting){
 				foreach($expect as $k => $v){
 					$keys2 = $keys;
 					$keys2[] = $k;
-					$buffer[] = [$keys2, $v, $depth + 1];
+					$directory_next = $directory;
+					$directory_next[] = $k;
+					$buffer[] = [$keys2, $v, $depth + 1, $directory_next];
 				}
 			}
 		}
@@ -335,7 +345,7 @@ final class GLTFParser{
 			"textures" => [], "cameras" => [], "animations" => [], "samplers" => [], "skins" => []
 		];
 		self::validateJsonSchema($properties, $required);
-		self::validateJsonSchema($properties, $required + $optional, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS | self::SCHEMA_NO_NESTING);
+		self::validateJsonSchema($properties, $required + $optional, [], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS | self::SCHEMA_NO_NESTING);
 
 		// validate buffers
 		// -- buffers must be validated earliest because bufferViews relies on it
@@ -347,8 +357,8 @@ final class GLTFParser{
 		}
 		if(isset($properties["buffers"])){
 			foreach($properties["buffers"] as $index => $entry){
-				self::validateJsonSchema($entry, $required_buffers);
-				self::validateJsonSchema($entry, $required_buffers + $optional_buffers, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				self::validateJsonSchema($properties, $required_buffers, ["buffers", $index]);
+				self::validateJsonSchema($properties, $required_buffers + $optional_buffers, ["buffers", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 				if(!$binary){
 					[$value, $mime] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"], self::ALLOWED_MIME_URI_BUFFER);
 					$buffers[$index] = new GLTFBuffer($value, $entry["byteLength"], $entry["uri"], $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
@@ -366,9 +376,9 @@ final class GLTFParser{
 		$optional_buffer_views = ["byteOffset" => 0, "byteStride" => 0, "target" => 0, "name" => "", "extensions" => [], "extras" => []];
 		$buffer_views = [];
 		if(isset($properties["bufferViews"])){
-			foreach($properties["bufferViews"] as $entry){
-				self::validateJsonSchema($entry, $required_buffer_views);
-				self::validateJsonSchema($entry, $required_buffer_views + $optional_buffer_views, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+			foreach($properties["bufferViews"] as $index => $entry){
+				self::validateJsonSchema($properties, $required_buffer_views, ["bufferViews", $index]);
+				self::validateJsonSchema($properties, $required_buffer_views + $optional_buffer_views, ["bufferViews", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 				$buffer_views[] = new GLTFBufferView($entry["buffer"], $entry["byteLength"], $entry["byteOffset"] ?? 0, $entry["byteStride"] ?? null, $entry["target"] ?? null, $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? []);
 			}
 		}
@@ -410,9 +420,9 @@ final class GLTFParser{
 		$optional_sparse_indices = ["byteOffset" => 0, "extensions" => [], "extras" => []];
 		$required_sparse_values = ["bufferView" => 0];
 		$optional_sparse_values = ["byteOffset" => 0, "extensions" => [], "extras" => []];
-		foreach($properties["accessors"] as $entry){
-			self::validateJsonSchema($entry, $required_accessors);
-			self::validateJsonSchema($entry, $required_accessors + $optional_accessors, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+		foreach($properties["accessors"] as $index => $entry){
+			self::validateJsonSchema($properties, $required_accessors, ["accessors", $index]);
+			self::validateJsonSchema($properties, $required_accessors + $optional_accessors, ["accessors", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 
 			$entry["count"] >= 1 || throw new InvalidArgumentException("Expected 'count' >= 1, got {$entry["count"]}", self::ERR_INVALID_SCHEMA);
 
@@ -426,7 +436,7 @@ final class GLTFParser{
 			// validate min, max
 			if(isset($entry["min"]) || isset($entry["max"])){
 				$types = array_fill(0, $component_count, 0.0);
-				self::validateJsonSchema($entry, ["min" => $types, "max" => $types]);
+				self::validateJsonSchema($properties, ["min" => $types, "max" => $types], ["accessors", $index]);
 				foreach([...$entry["min"], ...$entry["max"]] as $value){
 					!is_infinite($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
 					!is_nan($value) || throw new InvalidArgumentException("Invalid value encountered (inf) in accessor entry", self::ERR_INVALID_SCHEMA);
@@ -437,23 +447,23 @@ final class GLTFParser{
 			// validate sparse
 			if(isset($entry["sparse"])){
 				$sparse = $entry["sparse"];
-				self::validateJsonSchema($sparse, $required_sparse);
-				self::validateJsonSchema($sparse, $required_sparse + $optional_sparse, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				self::validateJsonSchema($sparse["indices"], $required_sparse_indices);
-				self::validateJsonSchema($sparse["indices"], $required_sparse_indices + $optional_sparse_indices, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
-				self::validateJsonSchema($sparse["values"], $required_sparse_values);
-				self::validateJsonSchema($sparse["values"], $required_sparse_values + $optional_sparse_values, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				self::validateJsonSchema($properties, $required_sparse, ["accessors", $index, "sparse"]);
+				self::validateJsonSchema($properties, $required_sparse + $optional_sparse, ["accessors", $index, "sparse"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				self::validateJsonSchema($properties, $required_sparse_indices, ["accessors", $index, "sparse", "indices"]);
+				self::validateJsonSchema($properties, $required_sparse_indices + $optional_sparse_indices, ["accessors", $index, "sparse", "indices"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				self::validateJsonSchema($properties, $required_sparse_values, ["accessors", $index, "sparse", "values"]);
+				self::validateJsonSchema($properties, $required_sparse_values + $optional_sparse_values, ["accessors", $index, "sparse", "values"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 
 				$sparse["count"] >= 1 || throw new InvalidArgumentException("Expected 'sparse.count' >= 1, got {$sparse["count"]}", self::ERR_INVALID_SCHEMA);
 				$sparse["count"] <= $entry["count"] || throw new InvalidArgumentException("Expected 'sparse.count' ({$sparse["count"]}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
 
 				// validate indices
 				$sparse_component_type = $this->component_registry[$sparse["indices"]["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($this->component_registry)) . ", got {$sparse["indices"]["componentType"]}", self::ERR_INVALID_SCHEMA);
-				$index = $sparse["indices"]["bufferView"];
-				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
-				$view = $buffer_views[$index];
-				$view->byte_stride === null || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
-				$view->target === null || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
+				$index_v = $sparse["indices"]["bufferView"];
+				isset($buffer_views[$index_v]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index_v}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$index_v];
+				$view->byte_stride === null || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index_v}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
+				$view->target === null || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index_v}) accessed from sparse indices to be undefined", self::ERR_INVALID_SCHEMA);
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $sparse["indices"]["byteOffset"] ?? 0;
@@ -463,19 +473,19 @@ final class GLTFParser{
 				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Sparse indices points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
 				$indices = unpack("{$sparse_component_type->format}{$sparse["count"]}/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view);
 				$indices = array_values($indices);
-				foreach($indices as $index => $value){
+				foreach($indices as $index2 => $value){
 					$value < $entry["count"] || throw new InvalidArgumentException("Expected sparse.indices ({$value}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
-					if($index > 0 && $value < $indices[$index - 1]){
-						throw new InvalidArgumentException("Expected sparse indices to strictly increase, got {$value} < {$indices[$index - 1]}", self::ERR_INVALID_SCHEMA);
+					if($index2 > 0 && $value < $indices[$index2 - 1]){
+						throw new InvalidArgumentException("Expected sparse indices to strictly increase, got {$value} < {$indices[$index2 - 1]}", self::ERR_INVALID_SCHEMA);
 					}
 				}
 
 				// validate values
-				$index = $sparse["values"]["bufferView"];
-				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
-				$view = $buffer_views[$index];
-				$view->byte_stride === null || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
-				$view->target === null || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
+				$index_v = $sparse["values"]["bufferView"];
+				isset($buffer_views[$index_v]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index_v}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$index_v];
+				$view->byte_stride === null || throw new InvalidArgumentException("Expected 'byteStride' of buffer view ({$index_v}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
+				$view->target === null || throw new InvalidArgumentException("Expected 'target' of buffer view ({$index_v}) accessed from sparse values to be undefined", self::ERR_INVALID_SCHEMA);
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
 				$offset_accessor = $sparse["values"]["byteOffset"] ?? 0;
@@ -492,9 +502,9 @@ final class GLTFParser{
 			}
 
 			if(isset($entry["bufferView"])){
-				$index = $entry["bufferView"];
-				isset($buffer_views[$index]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index}", self::ERR_INVALID_SCHEMA);
-				$view = $buffer_views[$index];
+				$index_v = $entry["bufferView"];
+				isset($buffer_views[$index_v]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index_v}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$index_v];
 				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Accessor points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
 
 				// validate if buffer view and the optional byteOffset align to the componentType byte length
@@ -514,26 +524,26 @@ final class GLTFParser{
 			}
 
 			// perform sparse substitution for $values
-			foreach($sparse[0] as $index => $index_replace){
+			foreach($sparse[0] as $index_s => $index_replace){
 				$offset = $index_replace * $component_count;
-				$replacement = array_slice($sparse[1], $index * $component_count, $component_count);
+				$replacement = array_slice($sparse[1], $index_s * $component_count, $component_count);
 				array_splice($values, $offset, $component_count, $replacement);
 			}
 
 			$accessor_values[] = [$component_type, $component_count, $entry["count"], $values];
 		}
 
-		self::validateJsonSchema($properties["asset"], [
+		self::validateJsonSchema($properties, [
 			"version" => "", "copyright" => "", "generator" => "", "minVersion" => "", "extensions" => [], "extras" => []
-		], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+		], ["asset"], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 
 		// validate animations
 		$required_animations = ["channels" => [], "samplers" => []];
 		$optional_animations = ["name" => "", "extensions" => [], "extras" => []];
 		if(isset($properties["animations"])){
-			foreach($properties["animations"] as $entry){
-				self::validateJsonSchema($entry, $required_animations);
-				self::validateJsonSchema($entry, $required_animations + $optional_animations, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+			foreach($properties["animations"] as $index => $entry){
+				self::validateJsonSchema($properties, $required_animations, ["animations", $index]);
+				self::validateJsonSchema($properties, $required_animations + $optional_animations, ["animations", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 			}
 		}
 
@@ -542,7 +552,7 @@ final class GLTFParser{
 		$image_buffers = [];
 		if(isset($properties["images"])){
 			foreach($properties["images"] as $index => $entry){
-				self::validateJsonSchema($entry, $optional_images, self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
+				self::validateJsonSchema($properties, $optional_images, ["images", $index], self::SCHEMA_OPTIONAL | self::SCHEMA_REPORT_UNKNOWN_KEYS);
 				!isset($entry["uri"], $entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got both", self::ERR_INVALID_SCHEMA);
 				isset($entry["uri"]) || isset($entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got neither", self::ERR_INVALID_SCHEMA);
 				if(isset($entry["bufferView"])){
