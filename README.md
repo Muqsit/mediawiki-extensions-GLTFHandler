@@ -60,7 +60,7 @@ Example usage of optional parameters:
 
 ## Gallery
 <p float="left">
-   <img src="https://github.com/user-attachments/assets/fcb849c2-d892-41cc-98aa-2fcb8af32877"/>
-   <img src="https://github.com/user-attachments/assets/3235b111-cf74-433c-b5fd-d13177bcb9c5" />
-   <img src="https://github.com/user-attachments/assets/7f9b2dcf-63bd-4279-bf03-1e227a58cd3c" />
+   <img src="https://github.com/user-attachments/assets/fcb849c2-d892-41cc-98aa-2fcb8af32877" width="250px"/>
+   <img src="https://github.com/user-attachments/assets/3235b111-cf74-433c-b5fd-d13177bcb9c5" width="250px"/>
+   <img src="https://github.com/user-attachments/assets/7f9b2dcf-63bd-4279-bf03-1e227a58cd3c" width="250px"/>
 </p>
