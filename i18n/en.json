@@ -5,10 +5,10 @@
 		]
 	},
 	"gltfhandler-desc": "Adds support for GLTF files on MediaWiki",
-	"gltfhandler-error-unknown": "The file contains improperly formatted glTF chunks.",
-	"gltfhandler-error-unsupportedversion": "The file has an glTF version that is currently not supported.",
+	"gltfhandler-error-unknown": "The file contains improperly formatted glTF sections.",
+	"gltfhandler-error-unsupportedversion": "The file uses a glTF version that is not currently supported.",
 	"gltfhandler-error-invalidschema": "The file has improper glTF metadata.",
 	"gltfhandler-error-uriresolutionembedded": "The file contains invalid embedded resources.",
-	"gltfhandler-error-uriresolutionlocal": "The file points to a local resource that could not be accessed.",
-	"gltfhandler-error-uriresolutionremote":  "The file points to a remote resource that could not be accessed."
+	"gltfhandler-error-uriresolutionlocal": "The file references a local resource that cannot be accessed.",
+	"gltfhandler-error-uriresolutionremote":  "The file references a remote resource that cannot be accessed."
 }
