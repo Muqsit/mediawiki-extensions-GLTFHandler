@@ -14,7 +14,7 @@ final class GLTFComponentType{
 	public const FLOAT = 5126;
 
 	/**
-	 * @return array<int, self>
+	 * @return non-empty-array<int, self>
 	 */
 	public static function registry() : array{
 		return array_column([

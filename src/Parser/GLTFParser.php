@@ -144,9 +144,6 @@ final class GLTFParser{
 		return $result;
 	}
 
-	/** @var array<int, GLTFComponentType> */
-	public array $component_registry;
-
 	public finfo $mime_checker;
 	public string $path;
 	public string $directory;
@@ -178,7 +175,6 @@ final class GLTFParser{
 	 */
 	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
 		$this->mime_checker = new finfo(FILEINFO_MIME_TYPE);
-		$this->component_registry = GLTFComponentType::registry();
 		$this->path = $path;
 
 		$directory = dirname($path); // needed for buffer resolution (when URIs are encountered)
@@ -437,6 +433,8 @@ final class GLTFParser{
 	 * @return list<array{GLTFComponentType, int, int, list<int|float>}>
 	 */
 	public function processAccessors(array $properties, array $buffers, array $buffer_views) : array{
+		$component_registry = GLTFComponentType::registry();
+
 		$accessor_values = [];
 		$required_accessors = ["componentType" => 0, "count" => 0, "type" => ""];
 		$optional_accessors = [
@@ -455,7 +453,7 @@ final class GLTFParser{
 
 			$entry["count"] >= 1 || throw new InvalidArgumentException("Expected 'count' >= 1, got {$entry["count"]}", self::ERR_INVALID_SCHEMA);
 
-			$component_type = $this->component_registry[$entry["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($this->component_registry)) . ", got {$entry["componentType"]}", self::ERR_INVALID_SCHEMA);
+			$component_type = $component_registry[$entry["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($component_registry)) . ", got {$entry["componentType"]}", self::ERR_INVALID_SCHEMA);
 			!isset($entry["byteOffset"]) || $entry["byteOffset"] >= 0 || throw new InvalidArgumentException("Expected 'sparse.count' >= 0, got {$entry["byteOffset"]}", self::ERR_INVALID_SCHEMA);
 			if(isset($entry["normalized"]) && $entry["normalized"] && in_array($component_type->code, [GLTFComponentType::FLOAT, GLTFComponentType::UNSIGNED_INT], true)){
 				throw new InvalidArgumentException("Expected 'normalized' to be false when component type is {$component_type->name}", self::ERR_INVALID_SCHEMA);
@@ -487,7 +485,7 @@ final class GLTFParser{
 				$sparse["count"] <= $entry["count"] || throw new InvalidArgumentException("Expected 'sparse.count' ({$sparse["count"]}) <= base accessor size ({$entry["count"]})", self::ERR_INVALID_SCHEMA);
 
 				// validate indices
-				$sparse_component_type = $this->component_registry[$sparse["indices"]["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($this->component_registry)) . ", got {$sparse["indices"]["componentType"]}", self::ERR_INVALID_SCHEMA);
+				$sparse_component_type = $component_registry[$sparse["indices"]["componentType"]] ?? throw new InvalidArgumentException("Expected 'componentType' to be one of: " . implode(", ", array_keys($component_registry)) . ", got {$sparse["indices"]["componentType"]}", self::ERR_INVALID_SCHEMA);
 				$index_v = $sparse["indices"]["bufferView"];
 				isset($buffer_views[$index_v]) || throw new InvalidArgumentException("Expected 'bufferView' >= 0, < " . count($buffer_views) . ", got {$index_v}", self::ERR_INVALID_SCHEMA);
 				$view = $buffer_views[$index_v];
