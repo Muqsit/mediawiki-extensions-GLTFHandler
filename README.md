@@ -62,11 +62,9 @@ Example usage of optional parameters:
 
 ## Limitations
 - glTF files with local or remote URIs are disallowed.
-
   This is both a safety mechanism (in case a local URI does not exist) and a security mechanism (to avoid loading unsafe
   assets at the user and the server's end).
 - No thumbnail support at its current stage.
-
   In short, by thumbnail we mean generating a preview image (e.g., a PNG) for the glTF model. Supporting this will most
   likely break portability of this extension. But this is much needed for 1) broader site accessibility, and 2) for
   OpenGraph tags as they do not support 3D assets in embeds.
