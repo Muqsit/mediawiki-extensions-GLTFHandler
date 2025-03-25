@@ -104,7 +104,9 @@ class GLTFHandler extends \MediaHandler {
 	public function getParamMap() {
 		return [
 			"img_width" => "width",
+			"gltfhandler_animation_name" => "animation-name",
 			"gltfhandler_ar" => "ar",
+			"gltfhandler_autoplay" => "autoplay",
 			"gltfhandler_camera_orbit" => "camera-orbit",
 			"gltfhandler_max_camera_orbit" => "max-camera-orbit",
 			"gltfhandler_environment" => "environment",
@@ -123,7 +125,7 @@ class GLTFHandler extends \MediaHandler {
 		if(in_array( $name, [ "width", "height"], true )){
 			return $value > 0;
 		}
-		if(in_array($name, ["ar", "camera-orbit", "max-camera-orbit", "poster", "skybox", "environment"], true)){
+		if(in_array($name, ["animation-name", "ar", "autoplay", "camera-orbit", "max-camera-orbit", "poster", "skybox", "environment"], true)){
 			return true;
 		}
 		if($name === "skybox-height"){
@@ -141,7 +143,9 @@ class GLTFHandler extends \MediaHandler {
 			$params["width"] ?? "",
 			$params["camera-orbit"] ?? "",
 			$params["max-camera-orbit"] ?? "",
+			$params["animation-name"] ?? "",
 			isset($params["ar"]) ? "true" : "false",
+			isset($params["autoplay"]) ? "true" : "false",
 			$params["poster"] ?? "",
 			$params["skybox"] ?? "",
 			$params["skybox-height"] ?? "",
@@ -158,7 +162,7 @@ class GLTFHandler extends \MediaHandler {
 		if(count($values) !== 7){
 			return false;
 		}
-		$params = array_combine(["width", "camera-orbit", "max-camera-orbit", "ar", "poster", "skybox", "skybox-height", "environment"], $values);
+		$params = array_combine(["width", "camera-orbit", "max-camera-orbit", "animation-name", "ar", "autoplay", "poster", "skybox", "skybox-height", "environment"], $values);
 		$params = array_filter($params, function($x){ return $x !== ""; });
 		$params["ar"] = $params["ar"] === "true";
 		return $params;

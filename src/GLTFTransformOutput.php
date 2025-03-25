@@ -33,7 +33,9 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 	 */
 	public function toHtml( $options = [] ) {
 		$attributes = ["shadow-intensity" => "1", "camera-controls" => true, "touch-action" => "pan-y"];
+		$attributes["animation-name"] = $this->pParams["animation-name"] ?? null;
 		$attributes["ar"] = isset($this->pParams["ar"]);
+		$attributes["autoplay"] = isset($this->pParams["autoplay"]);
 		$attributes["camera-orbit"] = $this->pParams["camera-orbit"] ?? null;
 		$attributes["max-camera-orbit"] = $this->pParams["max-camera-orbit"] ?? null;
 		$attributes["loading"] = "eager";

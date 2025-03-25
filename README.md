@@ -43,20 +43,114 @@ GLTFHandler uses the exact syntax as your ordinary media files:
 ```
 At the moment, the following file parameters are supported. See [model-viewer documentataion](https://modelviewer.dev/docs/index.html) for live examples. All parameters are optional.
 
-| Parameter          | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-|:-------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ar`               | Enable the ability to launch AR experiences on supported devices.<br/><i>Pertains to model-viewer's `ar` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `camera-orbit`     | Set the starting and/or subsequent orbital position of the camera. You can control the azimuthal, theta, and polar, phi, angles (phi is measured down from the top), and the radius from the center of the model. Accepts values of the form "\$theta \$phi \$radius", like `camera-orbit=-10deg 75deg 1.5m`. Also supports units in radians ("rad") for angles and centimeters ("cm") or millimeters ("mm") for camera distance. Camera distance can also be set as a percentage ('%'), where 100% gives the model tight framing within any window based on all possible theta and phi values.<br/><i>Pertains to model-viewer's `camera-orbit` attribute.</i> |
-| `environment`      | A .hdr or .jpg file. Controls the environmental reflection of the model.<br/><i>Pertains to model-viewer's `environment-image` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `max-camera-orbit` | Set the maximum orbital values of the camera. Takes values in the same form as camera-orbit.<br/><i>Pertains to model-viewer's `max-camera-orbit` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `poster`           | An image file. Displays an image instead of the model, useful for showing the user something before a model is loaded and ready to render..<br/><i>Pertains to model-viewer's `poster` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `skybox`           | An equirectangular projection image (.png, .hdr, .jpg). Sets the background image of the scene.<br/><i>Pertains to model-viewer's `skybox-image` attribute.</i>                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `skybox-height`    | Causes the skybox to be projected onto the ground plane. The height indicates the camera's distance above the ground and acts to scale the image at ground level to the correct size. Accepts units in meters ("m"), centimeters ("cm"), or millimeters ("mm"). The default value of 0m disables ground projection.<br/><i>Pertains to model-viewer's `skybox-height` attribute.</i>                                                                                                                                                                                                                                                                            |
+<table>
+    <tr>
+        <th colspan="2">Camera Properties</th>
+    </tr>
+    <tr>
+        <th>Parameter</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td><code>camera-orbit</code></td>
+        <td>
+            Set the starting and/or subsequent orbital position of the camera. You can control the azimuthal, theta, and polar, phi, angles (phi is measured down from the top), and the radius from the center of the model. Accepts values of the form "<code>$theta $phi $radius</code>", like <code>camera-orbit="-10deg 75deg 1.5m"</code>. Also supports units in radians (<code>rad</code>) for angles and centimeters (<code>cm</code>) or millimeters (<code>mm</code>) for camera distance. Camera distance can also be set as a percentage (<code>%</code>), where 100% gives the model tight framing within any window based on all possible theta and phi values.<br/>
+            <i>Pertains to model-viewer's <code>camera-orbit</code> attribute.</i>
+        </td>
+    </tr>
+    <tr>
+        <td><code>max-camera-orbit</code></td>
+        <td>
+            Set the maximum orbital values of the camera. Takes values in the same form as <code>camera-orbit</code>.<br/>
+            <i>Pertains to model-viewer's <code>max-camera-orbit</code> attribute.</i>
+        </td>
+    </tr>
+</table>
+
+<table>
+    <tr>
+        <th colspan="2">Skybox Properties</th>
+    </tr>
+    <tr>
+        <th>Parameter</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td><code>environment</code></td>
+        <td>
+            A .hdr or .jpg file. Controls the environmental reflection of the model.<br/>
+            <i>Pertains to model-viewer's <code>environment-image</code> attribute.</i>
+        </td>
+    </tr>
+    <tr>
+        <td><code>skybox</code></td>
+        <td>
+            An equirectangular projection image (.png, .hdr, .jpg). Sets the background image of the scene.<br/>
+            <i>Pertains to model-viewer's <code>skybox-image</code> attribute.</i>
+        </td>
+    </tr>
+    <tr>
+        <td><code>skybox-height</code></td>
+        <td>
+            Causes the skybox to be projected onto the ground plane. The height indicates the camera's distance above the ground and acts to scale the image at ground level to the correct size. Accepts units in meters (<code>m</code>), centimeters (<code>cm</code>), or millimeters (<code>mm</code>). The default value of <code>0m</code> disables ground projection.<br/>
+            <i>Pertains to model-viewer's <code>skybox-height</code> attribute.</i>
+        </td>
+    </tr>
+</table>
+
+<table>
+    <tr>
+        <th colspan="2">Animation Properties</th>
+    </tr>
+    <tr>
+        <th>Parameter</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td><code>animation-name</code></td>
+        <td>
+            Selects an animation to play by name. If not specified, the first animation is implicitly selected.<br/>
+            <i>Pertains to model-viewer's <code>animation-name</code> attribute.</i>
+        </td>
+    </tr>
+    <tr>
+        <td><code>autoplay</code></td>
+        <td>
+            If the model has animations, the selected animation will automatically begin to play.<br/>
+            <i>Pertains to model-viewer's <code>autoplay</code> attribute.</i>
+        </td>
+    </tr>
+</table>
+
+<table>
+    <tr>
+        <th colspan="2">Other Properties</th>
+    </tr>
+    <tr>
+        <th>Parameter</th>
+        <th>Description</th>
+    </tr>
+    <tr>
+        <td><code>ar</code></td>
+        <td>
+            Enable the ability to launch AR experiences on supported devices.<br/>
+            <i>Pertains to model-viewer's <code>ar</code> attribute.</i>
+        </td>
+    </tr>
+    <tr>
+        <td><code>poster</code></td>
+        <td>
+            An image file. Displays an image instead of the model, useful for showing the user something before a model is loaded and ready to render.<br/>
+            <i>Pertains to model-viewer's <code>poster</code> attribute.</i>
+        </td>
+    </tr>
+</table>
 
 Example usage of optional parameters:
 ```
-[[File:MyModel.glb|ar|environment=SomeEnvironment.png|poster=SomePoster.png]]
+[[File:MyModel.glb|ar|autoplay|environment=SomeEnvironment.png|poster=SomePoster.png]]
 [[File:MyModel.glb|camera-orbit=-30deg 90deg 22|skybox=SomeSkybox.jpg|skybox-height=1.5m]]
+[[File:MyModel.glb|autoplay|animation-name=Running]]
 ```
 
 ## Limitations
