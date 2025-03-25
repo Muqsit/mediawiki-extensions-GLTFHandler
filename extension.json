@@ -34,7 +34,15 @@
 			"dependencies": [],
 			"styles": [],
 			"messages": [],
-			"packageFiles": ["model-viewer.cjs.min.js", "model-viewer-dynsize.js"]
+			"packageFiles": ["model-viewer.cjs.min.js"]
+		},
+		"ext.gltfHandler.scripts": {
+			"localBasePath": "resources/ext.gltfHandler",
+			"remoteExtPath": "GLTFHandler/resources/ext.gltfHandler",
+			"dependencies": [],
+			"styles": [],
+			"messages": [],
+			"scripts": ["model-viewer-dynsize.js"]
 		}
 	},
 	"MediaHandlers": {
