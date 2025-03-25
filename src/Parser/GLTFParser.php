@@ -217,8 +217,10 @@ final class GLTFParser{
 		// this will likely impact self::computeModelDimensions() and maybe self::getMetadata().
 		$version === 2 || throw new InvalidArgumentException("Unsupported GLB version ({$version}), expected version 2", self::ERR_UNSUPPORTED_VERSION);
 
+		$this->validateProperties($properties);
 		[$buffers, $buffer_views] = $this->processBuffers($properties, $directory, $binary, $buffers, $flags);
-		[$accessor_values, $image_buffers] = $this->processProperties($properties, $directory, $buffers, $buffer_views, $flags);
+		$image_buffers = $this->processImages($properties, $directory, $buffers, $buffer_views, $flags);
+		$accessor_values = $this->processAccessors($properties, $buffers, $buffer_views);
 
 		$this->directory = $directory;
 		$this->binary = $binary;
@@ -284,10 +286,34 @@ final class GLTFParser{
 	}
 
 	/**
-	 * Validates schema of GLTF buffers and buffer views, and returns them as object representations.
+	 * Validates schema of GLTF properties. This does not validate accessors, buffers, and images which are validated by
+	 * other methods.
 	 *
-	 * TODO: Schema validation ought to be defined in a separate resource file, preferably one that adheres to
-	 * json-schema.org.
+	 * @see GLTFParser::processAccessors()
+	 * @see GLTFParser::processBuffers()
+	 * @see GLTFParser::processImages()
+	 *
+	 * @param array $properties
+	 */
+	public function validateProperties(array $properties) : void{
+		JSONSchema::validate($properties, [
+			"version" => "", "copyright" => "", "generator" => "", "minVersion" => "", "extensions" => [], "extras" => []
+		], ["asset"], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
+
+		// validate animations
+		$required_animations = ["channels" => [], "samplers" => []];
+		$optional_animations = ["name" => "", "extensions" => [], "extras" => []];
+		if(isset($properties["animations"])){
+			foreach($properties["animations"] as $index => $entry){
+				JSONSchema::validate($properties, $required_animations, ["animations", $index]);
+				JSONSchema::validate($properties, $required_animations + $optional_animations, ["animations", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
+			}
+		}
+	}
+
+	/**
+	 * Validates structure of "buffers" and "bufferViews" sections and returns a list of updated buffers and buffer
+	 * views. For GLB, $buffers must be a list of 1 element.
 	 *
 	 * @param array $properties
 	 * @param string $directory
@@ -296,7 +322,7 @@ final class GLTFParser{
 	 * @param int-mask-of<self::FLAG_*> $flags
 	 * @return array{list<GLTFBuffer>, list<GLTFBufferView>}
 	 */
-	public function processBuffers(array $properties, string $directory, bool $binary, array $buffers = [], int $flags = 0) : array{
+	public function processBuffers(array $properties, string $directory, bool $binary, array $buffers, int $flags = 0) : array{
 		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $directory : null;
 		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
 
@@ -356,23 +382,61 @@ final class GLTFParser{
 	}
 
 	/**
-	 * Validates schema of GLTF properties.
-	 *
-	 * TODO: Schema validation ought to be defined in a separate resource file, preferably one that adheres to
-	 * json-schema.org.
+	 * Validates structure of "images" section and returns a list of processed image data.
 	 *
 	 * @param array $properties
 	 * @param string $directory
 	 * @param list<GLTFBuffer> $buffers
 	 * @param list<GLTFBufferView> $buffer_views
 	 * @param int-mask-of<self::FLAG_*> $flags
-	 * @return array
+	 * @return list<array{int|string, string}> a list of processed image data. The element is array{int, string} for
+	 * images that reference a buffer view ([0] is the index of a buffer view). The element is array{string, string} for
+	 * images that reference a URI resource ([0] is the binary image data). [1] is the mime type (e.g., image/png).
 	 */
-	public function processProperties(array $properties, string $directory, array $buffers = [], array $buffer_views = [], int $flags = 0) : array{
+	public function processImages(array $properties, string $directory, array $buffers, array $buffer_views, int $flags = 0) : array{
+		if(!isset($properties["images"])){
+			return [];
+		}
+
 		$relative_dir = ($flags & self::FLAG_RESOLVE_LOCAL_URI) > 0 ? $directory : null;
 		$resolve_remote = ($flags & self::FLAG_RESOLVE_REMOTE_URI) > 0;
+		$image_buffers = [];
 
-		// validate accessors
+		$optional_images = ["uri" => "", "mimeType" => "", "bufferView" => 0, "name" => "", "extensions" => [], "extras" => []];
+		foreach($properties["images"] as $index => $entry){
+			JSONSchema::validate($properties, $optional_images, ["images", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
+			!isset($entry["uri"], $entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got both", self::ERR_INVALID_SCHEMA);
+			isset($entry["uri"]) || isset($entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got neither", self::ERR_INVALID_SCHEMA);
+			if(isset($entry["bufferView"])){
+				$entry["bufferView"] >= 0 || throw new InvalidArgumentException("Expected 'bufferView' >= 0, got {$entry["bufferView"]}", self::ERR_INVALID_SCHEMA);
+				isset($entry["mimeType"]) || throw new InvalidArgumentException("Expected 'mimeType' to be defined when 'bufferView' is defined", self::ERR_INVALID_SCHEMA);
+				$view_index = $entry["bufferView"];
+				isset($buffer_views[$view_index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$view_index}", self::ERR_INVALID_SCHEMA);
+				$view = $buffer_views[$view_index];
+				isset($buffers[$view->buffer]) || throw new InvalidArgumentException("Image buffer view at index {$view_index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count($buffers) . ")");
+				$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Image points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
+				$image_buffers[] = [$view_index, $entry["mimeType"]];
+			}else{
+				[$buffer, $mime] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, null, self::ALLOWED_MIME_URI_IMAGE);
+				if(isset($entry["mimeType"])){
+					$mime = $entry["mimeType"];
+				}
+				$image_buffers[] = [$buffer, $mime];
+			}
+		}
+		return $image_buffers;
+	}
+
+	/**
+	 * Validates structure of the "accessors" section and returns processed values for every accessor after sparse
+	 * substitution.
+	 *
+	 * @param array $properties
+	 * @param list<GLTFBuffer> $buffers
+	 * @param list<GLTFBufferView> $buffer_views
+	 * @return list<array{GLTFComponentType, int, int, list<int|float>}>
+	 */
+	public function processAccessors(array $properties, array $buffers, array $buffer_views) : array{
 		$accessor_values = [];
 		$required_accessors = ["componentType" => 0, "count" => 0, "type" => ""];
 		$optional_accessors = [
@@ -497,48 +561,7 @@ final class GLTFParser{
 
 			$accessor_values[] = [$component_type, $component_count, $entry["count"], $values];
 		}
-
-		JSONSchema::validate($properties, [
-			"version" => "", "copyright" => "", "generator" => "", "minVersion" => "", "extensions" => [], "extras" => []
-		], ["asset"], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
-
-		// validate animations
-		$required_animations = ["channels" => [], "samplers" => []];
-		$optional_animations = ["name" => "", "extensions" => [], "extras" => []];
-		if(isset($properties["animations"])){
-			foreach($properties["animations"] as $index => $entry){
-				JSONSchema::validate($properties, $required_animations, ["animations", $index]);
-				JSONSchema::validate($properties, $required_animations + $optional_animations, ["animations", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
-			}
-		}
-
-		// validate images
-		$optional_images = ["uri" => "", "mimeType" => "", "bufferView" => 0, "name" => "", "extensions" => [], "extras" => []];
-		$image_buffers = [];
-		if(isset($properties["images"])){
-			foreach($properties["images"] as $index => $entry){
-				JSONSchema::validate($properties, $optional_images, ["images", $index], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS);
-				!isset($entry["uri"], $entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got both", self::ERR_INVALID_SCHEMA);
-				isset($entry["uri"]) || isset($entry["bufferView"]) || throw new InvalidArgumentException("Expected images to contain one of 'uri' or 'bufferView', got neither", self::ERR_INVALID_SCHEMA);
-				if(isset($entry["bufferView"])){
-					$entry["bufferView"] >= 0 || throw new InvalidArgumentException("Expected 'bufferView' >= 0, got {$entry["bufferView"]}", self::ERR_INVALID_SCHEMA);
-					isset($entry["mimeType"]) || throw new InvalidArgumentException("Expected 'mimeType' to be defined when 'bufferView' is defined", self::ERR_INVALID_SCHEMA);
-					$view_index = $entry["bufferView"];
-					isset($buffer_views[$view_index]) || throw new InvalidArgumentException("Expected 'bufferView' index to be valid (< " . count($buffer_views) . "), got {$view_index}", self::ERR_INVALID_SCHEMA);
-					$view = $buffer_views[$view_index];
-					isset($buffers[$view->buffer]) || throw new InvalidArgumentException("Image buffer view at index {$view_index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count($buffers) . ")");
-					$buffers[$view->buffer]->value ?? throw new InvalidArgumentException("Image points to an unresolved buffer ({$view->buffer}): {$buffers[$view->buffer]->uri}", self::ERR_INVALID_SCHEMA);
-					$image_buffers[] = [$view_index, $entry["mimeType"]];
-				}else{
-					[$buffer, $mime] = $this->resolveURI($entry["uri"], $relative_dir, $resolve_remote, null, self::ALLOWED_MIME_URI_IMAGE);
-					if(isset($entry["mimeType"])){
-						$mime = $entry["mimeType"];
-					}
-					$image_buffers[] = [$buffer, $mime];
-				}
-			}
-		}
-		return [$accessor_values, $image_buffers];
+		return $accessor_values;
 	}
 
 	/**
