@@ -563,12 +563,14 @@ final class GLTFParser{
 	}
 
 	/**
-	 * @param string $mime the mime type to validate
+	 * Checks whether a MIME (or a [MIME, file-extension] pair) is allowed as per the parser rules.
+	 *
+	 * @param string $mime the mime type to test
 	 * @param string|null $ext extension of the file, or null if not known
 	 * @param list<string|array{string, string}>|null $allowed_mimes a list of allowed mime types, or null to allow all mimes
-	 * @return bool whether the mime is valid
+	 * @return bool whether the mime is allowed as per the parser rules
 	 */
-	public function validateMime(string $mime, ?string $ext, ?array $allowed_mimes) : bool{
+	public function isMimeAllowed(string $mime, ?string $ext, ?array $allowed_mimes) : bool{
 		if($allowed_mimes === null){
 			return true;
 		}
@@ -602,7 +604,7 @@ final class GLTFParser{
 			$uri_type = substr($uri, 5, $token_end - 5);
 			$uri_data = substr($uri, $token_end + 1);
 			$mime = explode(";", $uri_type, 2)[0];
-			$this->validateMime($mime, null, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
+			$this->isMimeAllowed($mime, null, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
 			if($uri_type === "application/octet-stream"){
 				return [urldecode($uri_data), $mime];
 			}
@@ -624,7 +626,7 @@ final class GLTFParser{
 			$data = file_get_contents($uri, length: $length);
 			$data !== false || throw new InvalidArgumentException("Remote resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_REMOTE);
 			$mime = $this->mime_checker->buffer($data);
-			$this->validateMime($mime, null, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
+			$this->isMimeAllowed($mime, null, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_REMOTE);
 			return [$data, $mime];
 		}
 		$base_directory ?? throw new InvalidArgumentException("Local resolution is not allowed", self::ERR_URI_RESOLUTION_LOCAL);
@@ -634,7 +636,7 @@ final class GLTFParser{
 		$data = file_get_contents($path, length: $length);
 		$data !== false || throw new InvalidArgumentException("Local resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_LOCAL);
 		$mime = $this->mime_checker->buffer($data);
-		$this->validateMime($mime, $ext, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED);
+		$this->isMimeAllowed($mime, $ext, $allowed_mimes) || throw new InvalidArgumentException("Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_LOCAL);
 		return [$data, $mime];
 	}
 
