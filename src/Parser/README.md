@@ -89,6 +89,7 @@ file_put_contents("Duck.glb", $contents);
 - No support for glTF 1.0. GLTFParser only works with glTF 2.0 files.
 - No glTF extension support. Extensions like [`KHR_draco_mesh_compression`](https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_draco_mesh_compression/README.md) are common and need to be supported.
   At the moment, model statistics cannot be properly computed for files using mesh extensions.
-- No means to specify custom local URI resolver. Webservers may not store the glTF file in the same directory as its
-  resources.
-- No means to allow certain remote URIs while disallowing others. GLTFParser will either allow all remote URIs or none (default: none).
+- No way to control behavior of local URI resolver. Webservers may not store the glTF file in the same directory as the
+  local URI resources that it references.
+- No way to allow certain remote URIs while disallowing others. GLTFParser will either allow all remote URIs or none
+  (default: none).
