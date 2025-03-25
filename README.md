@@ -1,7 +1,6 @@
 # GLTFHandler
-GLTFHandler lets you upload and interact with GLTF models on MediaWiki.
-It uses [google/model-viewer](https://github.com/google/model-viewer) library to display the 3D models and view them in
-your environment using augmented reality (on supported devices).
+GLTFHandler lets you upload and interact with GLTF models on MediaWiki. It uses [google/model-viewer](https://github.com/google/model-viewer) library to
+display the 3D models and optionally view them in your environment using augmented reality (on supported devices).
 
 For developers, a documentation for the glTF parser can be found [here](src/Parser/README.md).
 
