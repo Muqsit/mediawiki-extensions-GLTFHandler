@@ -177,6 +177,6 @@ class GLTFHandler extends \MediaHandler {
 	 * @return GLTFTransformOutput
 	 */
 	public function doTransform( $image, $dstPath, $dstUrl, $params, $flags = 0 ) {
-		return new GLTFTransformOutput( $image->getFullUrl(), $image->getWidth(), $image->getHeight(), $params );
+		return new GLTFTransformOutput( $image, $image->getWidth(), $image->getHeight(), $params );
 	}
 }

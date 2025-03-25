@@ -2,28 +2,29 @@
 
 namespace MediaWiki\Extension\GLTFHandler;
 
+use File;
 use MediaWiki\Html\Html;
 use MediaWiki\MediaWikiServices;
 use function is_string;
 
 class GLTFTransformOutput extends \MediaTransformOutput {
 
-	private string $pSourceFileURL;
 	private float $pWidth;
 	private float $pHeight;
 	private array $pParams;
 
 	/**
-	 * @param string $SourceFileURL
+	 * @param File $File
 	 * @param float $Width
 	 * @param float $Height
 	 * @param array $Params
 	 */
-	public function __construct( $SourceFileURL, $Width, $Height, $Params ) {
-		$this->pSourceFileURL = $SourceFileURL;
+	public function __construct( $File, $Width, $Height, $Params ) {
+		$this->file = $File;
 		$this->pWidth = $Width;
 		$this->pHeight = $Height;
 		$this->pParams = $Params;
+		$this->url = ""; // to have SearchResultThumbnailProvider::buildSearchResultThumbnailFromFile() return null
 	}
 
 	/**
@@ -40,7 +41,7 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 		$attributes["max-camera-orbit"] = $this->pParams["max-camera-orbit"] ?? null;
 		$attributes["loading"] = "eager";
 		$attributes["skybox-height"] = $this->pParams["skybox-height"] ?? null;
-		$attributes["src"] = $this->pSourceFileURL;
+		$attributes["src"] = $this->file->getFullUrl();
 
 		if($this->pHeight > 0 && $this->pWidth > 0){
 			if(isset($this->pParams["width"])){
