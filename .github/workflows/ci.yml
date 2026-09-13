@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  phpunit:
+    name: PHPUnit (MediaWiki 1.43)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out MediaWiki
+        uses: actions/checkout@v4
+        with:
+          repository: wikimedia/mediawiki
+          ref: REL1_43
+          path: mediawiki
+      - name: Check out GLTFHandler
+        uses: actions/checkout@v4
+        with:
+          path: mediawiki/extensions/GLTFHandler
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          extensions: intl, mbstring, sqlite3
+          tools: composer:2.8.12
+      - name: Install MediaWiki dependencies
+        working-directory: mediawiki
+        run: composer install --no-interaction --no-progress
+      - name: Install MediaWiki
+        working-directory: mediawiki
+        run: >-
+          php maintenance/install.php
+          --dbtype sqlite
+          --dbpath "${{ runner.temp }}"
+          --dbname mediawiki
+          --server http://localhost
+          --scriptpath ""
+          --lang en
+          --pass AdminPassword123!
+          TestWiki Admin
+      - name: Enable GLTFHandler
+        working-directory: mediawiki
+        run: printf "\nwfLoadExtension( 'GLTFHandler' );\n" >> LocalSettings.php
+      - name: Run extension PHPUnit tests
+        working-directory: mediawiki
+        run: composer phpunit:entrypoint -- extensions/GLTFHandler/tests/phpunit
