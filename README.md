@@ -6,16 +6,10 @@ display the 3D models and optionally view them in your environment using augment
 
 For developers, a documentation for the glTF parser can be found [here](src/Parser/README.md).
 
-## Motive
-Existing 3D extensions in the MediaWiki ecosphere do not support the glTF format which has become a standard for
-scenes and models. glTF libraries in PHP are lacking if not non-existent, requiring wiki maintainers to install third
-party libraries in addition to the extension for validating 3D assets. This makes the installation process inconvenient,
-and at times sufficiently challenging.
-
 ## Features
 - Work out of the box—no dependency installation needed
-- Support .gltf and .glb files
-- Validate structure of .gltf and .glb files
+- Support .gltf and .glb files with native `[[File:Model.glb]]` media handling
+- Validate structure and content of .gltf and .glb files before accepting upload 
 - Bounding box calculation to properly size the output canvas
 - Use [google/model-viewer](https://github.com/google/model-viewer) library to render 3D models, which supports all evergreen desktop and mobile browsers—Chrome, Firefox, Safari, and Edge.
 - Allow custom output options for model-viewer (see [usage](#Usage))
