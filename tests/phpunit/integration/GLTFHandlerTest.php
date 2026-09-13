@@ -16,4 +16,18 @@ class GLTFHandlerTest extends \MediaWikiIntegrationTestCase{
 		$handler = $this->getServiceContainer()->getMediaHandlerFactory()->getHandler("model/gltf+json");
 		$this->assertStatusNotGood($handler->verifyUpload($path));
 	}
+
+	public function testRejectsUnsafeLocalURI() : void{
+		$directory = $this->getNewTempDirectory();
+		mkdir($directory . "/model");
+		file_put_contents($directory . "/test.bin", "\0");
+		$path = $directory . "/model/test.gltf";
+		file_put_contents($path, json_encode([
+			"asset" => ["version" => "2.0"],
+			"buffers" => [["byteLength" => 1, "uri" => "../test.bin"]],
+			"accessors" => []
+		]));
+		$handler = $this->getServiceContainer()->getMediaHandlerFactory()->getHandler("model/gltf+json");
+		$this->assertStatusNotGood($handler->verifyUpload($path));
+	}
 }
