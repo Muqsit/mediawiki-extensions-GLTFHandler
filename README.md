@@ -1,4 +1,6 @@
 # GLTFHandler
+[![CI](https://github.com/Muqsit/mediawiki-extensions-GLTFHandler/actions/workflows/ci.yml/badge.svg)](https://github.com/Muqsit/mediawiki-extensions-GLTFHandler/actions/workflows/ci.yml)
+
 GLTFHandler lets you upload and interact with GLTF models on MediaWiki. It uses [google/model-viewer](https://github.com/google/model-viewer) library to
 display the 3D models and optionally view them in your environment using augmented reality (on supported devices).
 
