@@ -9,8 +9,6 @@ use function is_string;
 
 class GLTFTransformOutput extends \MediaTransformOutput {
 
-	private float $pWidth;
-	private float $pHeight;
 	private array $pParams;
 
 	/**
@@ -21,8 +19,8 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 	 */
 	public function __construct( $File, $Width, $Height, $Params ) {
 		$this->file = $File;
-		$this->pWidth = $Width;
-		$this->pHeight = $Height;
+		$this->width = (float)$Width;
+		$this->height = (float)$Height;
 		$this->pParams = $Params;
 		$this->url = ""; // to have SearchResultThumbnailProvider::buildSearchResultThumbnailFromFile() return null
 	}
@@ -43,14 +41,14 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 		$attributes["skybox-height"] = $this->pParams["skybox-height"] ?? null;
 		$attributes["src"] = $this->file->getFullUrl();
 
-		if($this->pHeight > 0 && $this->pWidth > 0){
+		if($this->height > 0 && $this->width > 0){
 			if(isset($this->pParams["width"])){
 				$width = (float)$this->pParams["width"];
-				$height = $width * ($this->pHeight / $this->pWidth);
+				$height = $width * ($this->height / $this->width);
 				$attributes["style"] = "width: {$width}px; height: {$height}px;";
 			}else{
-				$width = $this->pWidth;
-				$height = $this->pHeight;
+				$width = $this->width;
+				$height = $this->height;
 			}
 		}else{
 			$width = $height = null;
