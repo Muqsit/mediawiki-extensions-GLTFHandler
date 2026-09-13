@@ -636,7 +636,8 @@ final class GLTFParser{
 			return [$data, $mime];
 		}
 		$base_directory ?? throw new InvalidArgumentException("Local resolution is not allowed", self::ERR_URI_RESOLUTION_LOCAL);
-		$path = $base_directory . DIRECTORY_SEPARATOR . urldecode($uri);
+		\FileBackend::isPathTraversalFree($decoded_uri = urldecode($uri)) || throw new InvalidArgumentException("Directory traversal is not allowed in local URI: {$uri}", self::ERR_URI_RESOLUTION_LOCAL);
+		$path = $base_directory . DIRECTORY_SEPARATOR . $decoded_uri;
 		(is_file($path) && file_exists($path)) || throw new InvalidArgumentException("File not found: {$path}", self::ERR_URI_RESOLUTION_LOCAL);
 		$ext = pathinfo($path, PATHINFO_EXTENSION);
 		$data = file_get_contents($path, length: $length);
