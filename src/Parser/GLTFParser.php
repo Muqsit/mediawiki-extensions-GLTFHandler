@@ -77,6 +77,7 @@ final class GLTFParser{
 		"MAT3" => 3 * 3,
 		"MAT4" => 4 * 4
 	];
+	public const MAX_ACCESSOR_VALUES = 250_000;
 
 	/** @var int pertains to glTF header - this value is same as unpack("V", "glTF")[1] */
 	public const HEADER_MAGIC = 0x46546C67;
@@ -172,8 +173,9 @@ final class GLTFParser{
 	 *
 	 * @param string $path path to a GLB or GLTF file
 	 * @param int-mask-of<self::FLAG_*> $flags
+	 * @param int $max_accessor_values
 	 */
-	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI){
+	public function __construct(string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI, int $max_accessor_values = self::MAX_ACCESSOR_VALUES){
 		$this->mime_checker = new finfo(FILEINFO_MIME_TYPE);
 		$this->path = $path;
 
@@ -216,7 +218,7 @@ final class GLTFParser{
 		$this->validateProperties($properties);
 		[$buffers, $buffer_views] = $this->processBuffers($properties, $directory, $binary, $buffers, $flags);
 		$image_buffers = $this->processImages($properties, $directory, $buffers, $buffer_views, $flags);
-		$accessor_values = $this->processAccessors($properties, $buffers, $buffer_views);
+		$accessor_values = $this->processAccessors($properties, $buffers, $buffer_views, $max_accessor_values);
 
 		$this->directory = $directory;
 		$this->binary = $binary;
@@ -430,12 +432,14 @@ final class GLTFParser{
 	 * @param array $properties
 	 * @param list<GLTFBuffer> $buffers
 	 * @param list<GLTFBufferView> $buffer_views
+	 * @param int $max_accessor_values
 	 * @return list<array{GLTFComponentType, int, int, list<int|float>}>
 	 */
-	public function processAccessors(array $properties, array $buffers, array $buffer_views) : array{
+	public function processAccessors(array $properties, array $buffers, array $buffer_views, int $max_accessor_values = self::MAX_ACCESSOR_VALUES) : array{
 		$component_registry = GLTFComponentType::registry();
 
 		$accessor_values = [];
+		$n_accessor_values = 0;
 		$required_accessors = ["componentType" => 0, "count" => 0, "type" => ""];
 		$optional_accessors = [
 			"bufferView" => 0, "byteOffset" => 0, "normalized" => false, "name" => "", "min" => [], "max" => [],
@@ -459,6 +463,8 @@ final class GLTFParser{
 				throw new InvalidArgumentException("Expected 'normalized' to be false when component type is {$component_type->name}", self::ERR_INVALID_SCHEMA);
 			}
 			$component_count = self::ACCESSOR_SIZES[$entry["type"]] ?? throw new InvalidArgumentException("Expected accessor type to be one of: " . implode(", ", array_keys(self::ACCESSOR_SIZES)) . ", got '{$entry["type"]}'", self::ERR_INVALID_SCHEMA);
+			$entry["count"] <= intdiv($max_accessor_values - $n_accessor_values, $component_count) || throw new InvalidArgumentException("Accessor values exceed parser limit of {$max_accessor_values}", self::ERR_INVALID_SCHEMA);
+			$n_accessor_values += $entry["count"] * $component_count;
 
 			// validate min, max
 			if(isset($entry["min"]) || isset($entry["max"])){

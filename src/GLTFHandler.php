@@ -23,8 +23,9 @@ class GLTFHandler extends \MediaHandler {
 	 * @return array|null
 	 */
 	public function getSizeAndMetadata($state, $path){
+		global $wgGLTFHandlerMaxAccessorValues;
 		try{
-			$parser = new GLTFParser($path);
+			$parser = new GLTFParser($path, max_accessor_values: $wgGLTFHandlerMaxAccessorValues);
 		}catch(InvalidArgumentException){
 			return null;
 		}
@@ -55,7 +56,8 @@ class GLTFHandler extends \MediaHandler {
 	}
 
 	public function verifyUpload( $fileName ) {
-		try{ new GLTFParser($fileName); }catch(InvalidArgumentException $e){
+		global $wgGLTFHandlerMaxAccessorValues;
+		try{ new GLTFParser($fileName, max_accessor_values: $wgGLTFHandlerMaxAccessorValues); }catch(InvalidArgumentException $e){
 			return Status::newFatal(match($e->getCode()){
 				GLTFParser::ERR_UNSUPPORTED_VERSION => "gltfhandler-error-unsupportedversion",
 				GLTFParser::ERR_INVALID_SCHEMA => "gltfhandler-error-invalidschema",
