@@ -775,14 +775,12 @@ final class GLTFParser{
 				}
 				[$comp_type, $comp_size, $n_comp, $comp_values] = $this->accessor_values[$primitive["attributes"]["POSITION"]];
 				$vertices += $n_comp;
-				if(isset($primitive["indices"])){
-					$n_indices = $this->accessor_values[$primitive["indices"]][2];
-					$mode = $primitive["mode"] ?? 4;
-					if($mode === 4){ // TRIANGLES
-						$triangles += intdiv($n_indices, 3);
-					}elseif($mode === 5 /* TRIANGLE_STRIP */ || $mode === 6 /* TRIANGLE_FAN */){ // TRIANGLE_STRIP
-						$triangles += $n_indices > 2 ? $n_indices - 2 : 0;
-					}
+				$n_indices = isset($primitive["indices"]) ? $this->accessor_values[$primitive["indices"]][2] : $n_comp;
+				$mode = $primitive["mode"] ?? 4;
+				if($mode === 4){ // TRIANGLES
+					$triangles += intdiv($n_indices, 3);
+				}elseif($mode === 5 /* TRIANGLE_STRIP */ || $mode === 6 /* TRIANGLE_FAN */){ // TRIANGLE_STRIP
+					$triangles += $n_indices > 2 ? $n_indices - 2 : 0;
 				}
 			}
 		}
