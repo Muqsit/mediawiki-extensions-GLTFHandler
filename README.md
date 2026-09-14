@@ -36,7 +36,7 @@ Requires **MediaWiki 1.43.0** or later.
 
 ## Usage
 GLTFHandler uses the exact syntax as your ordinary media files:
-```
+```wikitext
 [[File:MyModel.glb]]
 [[File:MyModel.gltf]]
 [[File:MyModel.glb|thumb|400px]]
@@ -147,7 +147,7 @@ At the moment, the following file parameters are supported. See [model-viewer do
 </table>
 
 Example usage of optional parameters:
-```
+```wikitext
 [[File:MyModel.glb|ar|autoplay|environment=SomeEnvironment.png|poster=SomePoster.png]]
 [[File:MyModel.glb|camera-orbit=-30deg 90deg 22|skybox=SomeSkybox.jpg|skybox-height=1.5m]]
 [[File:MyModel.glb|autoplay|animation-name=Running]]

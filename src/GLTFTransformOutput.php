@@ -32,11 +32,11 @@ class GLTFTransformOutput extends \MediaTransformOutput {
 		foreach ( Constants::PARAMS as $value ) {
 			$user_value = $this->pParams[$value["name"]] ?? $value["default"];
 			if ( $value["type"] === "bool" ) {
-				$attributes[$value["name"]] = $user_value;
+				$attributes[$value["name"]] = array_key_exists( $value["name"], $this->pParams ) || $user_value;
 			} elseif ( $value["type"] === "file" ) {
 				$attribute = $value["attributes"]["mv_param"] ?? null;
 				if ( is_string( $user_value ) && $attribute !== null ) {
-					$file = MediaWikiServices::getInstance()->getRepoGroup()->findFile( $this->pParams["poster"] );
+					$file = MediaWikiServices::getInstance()->getRepoGroup()->findFile( $user_value );
 					if ( $file !== false && $file->isLocal() && $file->canRender() ) {
 						$attributes[$attribute] = $file->getUrl();
 					}

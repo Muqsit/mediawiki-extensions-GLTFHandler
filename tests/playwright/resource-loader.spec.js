@@ -1,6 +1,6 @@
 'use strict';
 
-/* global mw, window */
+/* global document, mw, window */
 
 const { test, expect } = require( '@playwright/test' );
 
@@ -75,6 +75,5 @@ test( 'core scripts survive a model-viewer bundle failure', async ( { page } ) =
 	await page.waitForFunction( () => typeof window.jQuery === 'function' && typeof window.mw === 'object' );
 	await expect.poll( () => vendorRequestFailed ).toBe( true );
 
-	const jqueryWorks = await page.evaluate( () => window.jQuery( '<div>' ).length === 1 );
-	expect( jqueryWorks ).toBe( true );
+	expect( await page.evaluate( () => window.jQuery( document.createElement( 'div' ) ).length === 1 ) ).toBe( true );
 } );
