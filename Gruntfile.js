@@ -21,6 +21,7 @@ module.exports = function ( grunt ) {
 			},
 			all: [
 				'**/*.{css,less}',
+				'!mediawiki/**',
 				'!node_modules/**',
 				'!vendor/**'
 			]

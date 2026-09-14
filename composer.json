@@ -2,7 +2,7 @@
 	"name": "muqsit/gltfhandler",
 	"type": "mediawiki-extension",
 	"description": "Embed 3D GLTF models (.glb and .gltf files) on MediaWiki",
-	"keywords": ["gltf", "glb", "MediaWiki", "extension"],
+	"keywords": [ "gltf", "glb", "MediaWiki", "extension" ],
 	"homepage": "https://www.mediawiki.org/wiki/Extension:GLTFHandler",
 	"license": "GPL-2.0-or-later",
 	"authors": [
@@ -37,7 +37,7 @@
 			"dealerdirect/phpcodesniffer-composer-installer": true
 		}
 	},
-    "require": {
-        "ext-fileinfo": "*"
-    }
+	"require": {
+		"ext-fileinfo": "*"
+	}
 }

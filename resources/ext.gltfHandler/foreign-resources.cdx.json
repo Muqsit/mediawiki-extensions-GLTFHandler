@@ -10,10 +10,10 @@
 			"name": "model-viewer",
 			"version": "4.3.1",
 			"licenses": [
-				{"license": {"id": "Apache-2.0"}}
+				{ "license": { "id": "Apache-2.0" } }
 			],
 			"externalReferences": [
-				{"url": "https://modelviewer.dev/", "type": "website"}
+				{ "url": "https://modelviewer.dev/", "type": "website" }
 			]
 		}
 	]

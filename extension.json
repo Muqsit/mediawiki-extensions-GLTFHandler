@@ -42,7 +42,7 @@
 			"dependencies": [],
 			"styles": [],
 			"messages": [],
-			"packageFiles": ["model-viewer-umd.min.js"]
+			"packageFiles": [ "model-viewer-umd.min.js" ]
 		},
 		"ext.gltfHandler.scripts": {
 			"localBasePath": "resources/ext.gltfHandler",
@@ -50,7 +50,7 @@
 			"dependencies": [],
 			"styles": [],
 			"messages": [],
-			"scripts": ["model-viewer-dynsize.js"]
+			"scripts": [ "model-viewer-dynsize.js" ]
 		}
 	},
 	"MediaHandlers": {

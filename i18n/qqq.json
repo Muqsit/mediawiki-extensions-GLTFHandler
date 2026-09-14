@@ -4,5 +4,11 @@
 			"Muqsit"
 		]
 	},
-	"gltfhandler-desc": "{{desc|name=GLTFHandler}}"
+	"gltfhandler-desc": "{{desc|name=GLTFHandler}}",
+	"gltfhandler-error-unknown": "Error shown when a glTF file contains sections that cannot be parsed.",
+	"gltfhandler-error-unsupportedversion": "Error shown when a glTF file uses an unsupported version of the format.",
+	"gltfhandler-error-invalidschema": "Error shown when a glTF file's metadata does not conform to the expected schema.",
+	"gltfhandler-error-uriresolutionembedded": "Error shown when a glTF file contains an invalid embedded resource URI.",
+	"gltfhandler-error-uriresolutionlocal": "Error shown when a glTF file refers to a local resource that cannot be accessed.",
+	"gltfhandler-error-uriresolutionremote": "Error shown when a glTF file refers to a remote resource that cannot be accessed."
 }

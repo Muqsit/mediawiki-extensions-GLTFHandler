@@ -10,5 +10,5 @@
 	"gltfhandler-error-invalidschema": "The file has improper glTF metadata.",
 	"gltfhandler-error-uriresolutionembedded": "The file contains invalid embedded resources.",
 	"gltfhandler-error-uriresolutionlocal": "The file references a local resource that cannot be accessed.",
-	"gltfhandler-error-uriresolutionremote":  "The file references a remote resource that cannot be accessed."
+	"gltfhandler-error-uriresolutionremote": "The file references a remote resource that cannot be accessed."
 }
