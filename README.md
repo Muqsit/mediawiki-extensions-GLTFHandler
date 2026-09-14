@@ -15,7 +15,7 @@ For developers, a documentation for the glTF parser can be found [here](src/Pars
 - Allow custom output options for model-viewer (see [usage](#Usage))
 
 ## Installation
-Requires **MediaWiki 1.42.0** or later.
+Requires **MediaWiki 1.43.0** or later.
 1. Download GLTFHandler extension. You can get the extension via Git (specifying GLTFHandler as the destination directory):
    ```
    git clone https://github.com/Muqsit/mediawiki-extensions-GLTFHandler.git GLTFHandler
