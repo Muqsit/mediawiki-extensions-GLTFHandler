@@ -2,10 +2,14 @@
 	"name": "GLTFHandler",
 	"private": true,
 	"scripts": {
-		"test": "grunt test"
+		"build:model-viewer": "esbuild node_modules/@google/model-viewer/dist/model-viewer-umd.min.js --target=es2017 --supported:template-literal=false --minify --legal-comments=inline --outfile=resources/ext.gltfHandler/model-viewer-umd.min.js",
+		"test": "grunt test",
+		"test:e2e": "playwright test"
 	},
 	"devDependencies": {
 		"@google/model-viewer": "4.3.1",
+		"@playwright/test": "^1.63.0",
+		"esbuild": "^0.28.2",
 		"eslint-config-wikimedia": "0.28.2",
 		"grunt": "1.6.1",
 		"grunt-banana-checker": "0.13.0",

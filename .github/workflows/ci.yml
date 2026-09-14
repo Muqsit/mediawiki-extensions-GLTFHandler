@@ -69,6 +69,67 @@ jobs:
       - name: Run npm tests
         run: npm test
 
+  browser-test:
+    name: Browser integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out MediaWiki
+        uses: actions/checkout@v7
+        with:
+          repository: wikimedia/mediawiki
+          ref: REL1_46
+          path: mediawiki
+      - name: Check out GLTFHandler
+        uses: actions/checkout@v7
+        with:
+          path: mediawiki/extensions/GLTFHandler
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          extensions: intl, mbstring, sqlite3
+          tools: composer
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mediawiki/extensions/GLTFHandler/package-lock.json
+      - name: Install MediaWiki dependencies
+        working-directory: mediawiki
+        run: composer install --no-interaction --no-progress
+      - name: Install MediaWiki
+        working-directory: mediawiki
+        run: >-
+          php maintenance/install.php
+          --dbtype sqlite
+          --dbpath "${{ runner.temp }}"
+          --dbname mediawiki
+          --server http://127.0.0.1:8080
+          --scriptpath ""
+          --lang en
+          --pass AdminPassword123!
+          TestWiki Admin
+      - name: Enable GLTFHandler
+        working-directory: mediawiki
+        run: printf "\nwfLoadExtension( 'GLTFHandler' );\n" >> LocalSettings.php
+      - name: Install browser-test dependencies
+        working-directory: mediawiki/extensions/GLTFHandler
+        run: npm ci
+      - name: Verify model-viewer browser build
+        working-directory: mediawiki/extensions/GLTFHandler
+        run: |
+          npm run build:model-viewer
+          git diff --exit-code -- resources/ext.gltfHandler/model-viewer-umd.min.js
+      - name: Install Chromium
+        working-directory: mediawiki/extensions/GLTFHandler
+        run: npx playwright install --with-deps chromium
+      - name: Run browser integration tests
+        working-directory: mediawiki/extensions/GLTFHandler
+        env:
+          MW_SERVER_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_WEB_SERVER_COMMAND: php -S 127.0.0.1:8080 -t ../..
+        run: npm run test:e2e
+
   phpunit:
     name: PHPUnit (MediaWiki ${{ matrix.mediawiki }}, PHP ${{ matrix.php }})
     runs-on: ubuntu-latest

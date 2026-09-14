@@ -39,6 +39,7 @@
 		"ext.gltfHandler": {
 			"localBasePath": "resources/ext.gltfHandler",
 			"remoteExtPath": "GLTFHandler/resources/ext.gltfHandler",
+			"group": "ext.gltfHandler.vendor",
 			"dependencies": [],
 			"styles": [],
 			"messages": [],
@@ -47,7 +48,7 @@
 		"ext.gltfHandler.scripts": {
 			"localBasePath": "resources/ext.gltfHandler",
 			"remoteExtPath": "GLTFHandler/resources/ext.gltfHandler",
-			"dependencies": [],
+			"dependencies": [ "jquery" ],
 			"styles": [],
 			"messages": [],
 			"scripts": [ "model-viewer-dynsize.js" ]
