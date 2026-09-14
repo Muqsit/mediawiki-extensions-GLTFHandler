@@ -111,7 +111,7 @@ jobs:
           TestWiki Admin
       - name: Enable GLTFHandler
         working-directory: mediawiki
-        run: printf "\nwfLoadExtension( 'GLTFHandler' );\n" >> LocalSettings.php
+        run: printf "\nwfLoadExtension( 'GLTFHandler' );\n\$wgEnableUploads = true;\n" >> LocalSettings.php
       - name: Install browser-test dependencies
         working-directory: mediawiki/extensions/GLTFHandler
         run: npm ci
@@ -127,6 +127,8 @@ jobs:
         working-directory: mediawiki/extensions/GLTFHandler
         env:
           MW_SERVER_URL: http://127.0.0.1:8080
+          MW_USERNAME: Admin
+          MW_PASSWORD: AdminPassword123!
           PLAYWRIGHT_WEB_SERVER_COMMAND: php -S 127.0.0.1:8080 -t ../..
         run: npm run test:e2e
 

@@ -243,6 +243,14 @@ final class GLTFParser {
 		[ $buffers, $buffer_views ] = $this->processBuffers( $properties, $directory, $binary, $buffers, $flags );
 		$image_buffers = $this->processImages( $properties, $directory, $buffers, $buffer_views, $flags );
 		$accessor_values = $this->processAccessors( $properties, $buffers, $buffer_views, $max_accessor_values );
+		foreach ( $properties["meshes"] ?? [] as $mesh ) {
+			foreach ( $mesh["primitives"] ?? [] as $primitive ) {
+				if ( isset( $primitive["indices"] ) ) {
+					$accessor = $accessor_values[$primitive["indices"]] ?? throw new InvalidArgumentException( "Primitive points to an undefined indices accessor", self::ERR_INVALID_SCHEMA );
+					!in_array( $accessor[0]->max, $accessor[3], true ) || throw new InvalidArgumentException( "Indices accessor contains a primitive restart value", self::ERR_INVALID_SCHEMA );
+				}
+			}
+		}
 
 		$this->directory = $directory;
 		$this->binary = $binary;
