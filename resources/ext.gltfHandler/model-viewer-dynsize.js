@@ -1,6 +1,11 @@
 $( () => {
 	// simulate width=100%, height=auto using javascript
 	const elements = document.querySelectorAll( '.model-viewer-dynsize[data-width][data-height]' );
+	if ( elements.length === 0 ) {
+		return;
+	}
+
+	mw.loader.load( 'ext.gltfHandler' );
 	window.addEventListener( 'resize', () => {
 		for ( const element of elements ) {
 			const figureNode = element.closest( 'figure' );

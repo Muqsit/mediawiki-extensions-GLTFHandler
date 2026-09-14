@@ -9,7 +9,7 @@ class Hooks implements BeforePageDisplayHook, MimeMagicImproveFromExtensionHook 
 
 	/** @inheritDoc */
 	public function onBeforePageDisplay( $out, $skin ): void {
-		$out->addModules( [ "ext.gltfHandler", "ext.gltfHandler.scripts" ] );
+		$out->addModules( [ "ext.gltfHandler.scripts" ] );
 	}
 
 	/** @inheritDoc */
