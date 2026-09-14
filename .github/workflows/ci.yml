@@ -9,14 +9,23 @@ permissions:
 
 jobs:
   phpunit:
-    name: PHPUnit (MediaWiki 1.43)
+    name: PHPUnit (MediaWiki ${{ matrix.mediawiki }}, PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - mediawiki: '1.43'
+            ref: REL1_43
+            php: '8.1'
+          - mediawiki: '1.46'
+            ref: REL1_46
+            php: '8.5'
     steps:
       - name: Check out MediaWiki
         uses: actions/checkout@v4
         with:
           repository: wikimedia/mediawiki
-          ref: REL1_43
+          ref: ${{ matrix.ref }}
           path: mediawiki
       - name: Check out GLTFHandler
         uses: actions/checkout@v4
@@ -24,7 +33,7 @@ jobs:
           path: mediawiki/extensions/GLTFHandler
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: ${{ matrix.php }}
           coverage: none
           extensions: intl, mbstring, sqlite3
           tools: composer:2.8.12
@@ -50,4 +59,4 @@ jobs:
         run: printf "\nwfLoadExtension( 'GLTFHandler' );\n" >> LocalSettings.php
       - name: Run extension PHPUnit tests
         working-directory: mediawiki
-        run: composer phpunit:entrypoint -- extensions/GLTFHandler/tests/phpunit
+        run: composer phpunit:entrypoint -- --testdox extensions/GLTFHandler/tests/phpunit
