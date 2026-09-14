@@ -12,6 +12,7 @@ jobs:
     name: PHPUnit (MediaWiki ${{ matrix.mediawiki }}, PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - mediawiki: '1.43'
@@ -22,13 +23,13 @@ jobs:
             php: '8.5'
     steps:
       - name: Check out MediaWiki
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: wikimedia/mediawiki
           ref: ${{ matrix.ref }}
           path: mediawiki
       - name: Check out GLTFHandler
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: mediawiki/extensions/GLTFHandler
       - uses: shivammathur/setup-php@v2
@@ -36,7 +37,7 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
           extensions: intl, mbstring, sqlite3
-          tools: composer:2.8.12
+          tools: composer
       - name: Install Assimp
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends assimp-utils
       - name: Install MediaWiki dependencies
