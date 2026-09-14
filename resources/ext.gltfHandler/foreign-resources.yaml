@@ -1,0 +1,5 @@
+model-viewer:
+  license: Apache-2.0
+  homepage: https://modelviewer.dev/
+  version: 4.3.1
+  type: doc-only
