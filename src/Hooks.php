@@ -7,12 +7,14 @@ use MediaWiki\Hook\MimeMagicImproveFromExtensionHook;
 
 class Hooks implements BeforePageDisplayHook, MimeMagicImproveFromExtensionHook {
 
+	/** @inheritDoc */
 	public function onBeforePageDisplay( $out, $skin ): void {
-		$out->addModules(["ext.gltfHandler", "ext.gltfHandler.scripts"]);
+		$out->addModules( [ "ext.gltfHandler", "ext.gltfHandler.scripts" ] );
 	}
 
-	public function onMimeMagicImproveFromExtension($mimeMagic, $ext, &$mime){
-		if($ext === "gltf" && $mime === "application/json"){
+	/** @inheritDoc */
+	public function onMimeMagicImproveFromExtension( $mimeMagic, $ext, &$mime ) {
+		if ( $ext === "gltf" && $mime === "application/json" ) {
 			$mime = "model/gltf+json";
 			return true;
 		}

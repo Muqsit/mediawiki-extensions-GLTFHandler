@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.3'
           coverage: none
           tools: composer
       - name: Install Composer dependencies
@@ -28,16 +28,30 @@ jobs:
     name: Phan
     runs-on: ubuntu-latest
     steps:
+      - name: Check out MediaWiki
+        uses: actions/checkout@v7
+        with:
+          repository: wikimedia/mediawiki
+          ref: REL1_46
+          path: mediawiki
       - name: Check out GLTFHandler
         uses: actions/checkout@v7
+        with:
+          path: mediawiki/extensions/GLTFHandler
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.3'
           coverage: none
+          extensions: ast
           tools: composer
-      - name: Install Composer dependencies
+      - name: Install MediaWiki dependencies
+        working-directory: mediawiki
+        run: composer install --no-interaction --no-progress
+      - name: Install extension dependencies
+        working-directory: mediawiki/extensions/GLTFHandler
         run: composer install --no-interaction --no-progress
       - name: Run Phan
+        working-directory: mediawiki/extensions/GLTFHandler
         run: composer phan
 
   npm-test:
