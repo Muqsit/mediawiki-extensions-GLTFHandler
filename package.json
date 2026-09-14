@@ -2,7 +2,7 @@
 	"name": "GLTFHandler",
 	"private": true,
 	"scripts": {
-		"build:model-viewer": "esbuild node_modules/@google/model-viewer/dist/model-viewer-umd.min.js --target=es2017 --supported:template-literal=false --minify --legal-comments=inline --outfile=resources/ext.gltfHandler/model-viewer-umd.min.js",
+		"build:model-viewer": "esbuild node_modules/@google/model-viewer/dist/model-viewer-umd.min.js --target=es2017 --supported:template-literal=false --pure:console.log --minify --legal-comments=inline --outfile=resources/ext.gltfHandler/model-viewer-umd.min.js",
 		"test": "grunt test",
 		"test:e2e": "playwright test"
 	},
