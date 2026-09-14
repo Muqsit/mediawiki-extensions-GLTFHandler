@@ -16,11 +16,13 @@ class GLTFHandler extends \MediaHandler {
 		global $wgGLTFHandlerMaxAccessorValues;
 		try {
 			$parser = new GLTFParser( $path, max_accessor_values: $wgGLTFHandlerMaxAccessorValues );
+			$dims = $parser->computeModelDimensions();
 		} catch ( InvalidArgumentException ) {
 			return null;
 		}
-		$dims = $parser->computeModelDimensions();
-
+		if ( $dims === null ) {
+			return null;
+		}
 		$width = max( $dims[0], $dims[2] );
 		$height = $dims[1];
 

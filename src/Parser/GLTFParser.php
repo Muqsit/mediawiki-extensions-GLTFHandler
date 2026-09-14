@@ -5,11 +5,8 @@ namespace MediaWiki\Extension\GLTFHandler\Parser;
 use finfo;
 use InvalidArgumentException;
 use JsonException;
-use function array_column;
 use function array_fill;
 use function array_keys;
-use function array_slice;
-use function array_splice;
 use function array_values;
 use function base64_decode;
 use function bin2hex;
@@ -17,12 +14,13 @@ use function count;
 use function dirname;
 use function explode;
 use function fclose;
-use function feof;
 use function file_exists;
 use function file_get_contents;
+use function filesize;
 use function fopen;
 use function fread;
 use function fseek;
+use function ftell;
 use function gettype;
 use function implode;
 use function in_array;
@@ -80,6 +78,12 @@ final class GLTFParser {
 		"MAT4" => 4 * 4
 	];
 	public const MAX_ACCESSOR_VALUES = 250_000;
+	public const MAX_INPUT_BYTES = 100 * 1024 * 1024;
+	public const MAX_JSON_BYTES = 16 * 1024 * 1024;
+	public const MAX_RESOLVED_RESOURCE_BYTES = 100 * 1024 * 1024;
+	public const MAX_RESOLVED_RESOURCES = 1_024;
+	public const MAX_SCENE_NODE_REFERENCES = 100_000;
+	public const MAX_TRANSFORMED_VERTICES = 1_000_000;
 
 	/** @var int pertains to glTF header - this value is same as unpack("V", "glTF")[1] */
 	public const HEADER_MAGIC = 0x46546C67;
@@ -121,7 +125,8 @@ final class GLTFParser {
 		$resource !== false || throw new InvalidArgumentException( "Could not open file: {$path}", self::ERR_IO );
 		try {
 			$structure = fread( $resource, 4 );
-			$structure !== false || throw new InvalidArgumentException( "Could not read file: {$path}", self::ERR_IO );
+			$structure !== false || throw new InvalidArgumentException( "Could not read file header: {$path}", self::ERR_IO );
+			strlen( $structure ) === 4 || throw new InvalidArgumentException( "Could not read complete file header: {$path}", self::ERR_IO );
 			$type = unpack( "V", $structure )[1];
 			return $type === self::HEADER_MAGIC;
 		} finally {
@@ -172,6 +177,9 @@ final class GLTFParser {
 
 	public ?string $copyright;
 	public ?string $generator;
+	private int $input_size;
+	private int $resolved_resource_bytes = 0;
+	private int $resolved_resources = 0;
 
 	/**
 	 * Parses the structure of a GLB or GLTF file.
@@ -179,10 +187,16 @@ final class GLTFParser {
 	 * @param string $path path to a GLB or GLTF file
 	 * @param int $flags Bitmask of self::FLAG_* constants
 	 * @param int $max_accessor_values
+	 * @param int $max_resolved_resource_bytes
+	 * @param int $max_resolved_resources
 	 */
-	public function __construct( string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI, int $max_accessor_values = self::MAX_ACCESSOR_VALUES ) {
+	public function __construct( string $path, int $flags = self::FLAG_RESOLVE_LOCAL_URI, int $max_accessor_values = self::MAX_ACCESSOR_VALUES, private int $max_resolved_resource_bytes = self::MAX_RESOLVED_RESOURCE_BYTES, private int $max_resolved_resources = self::MAX_RESOLVED_RESOURCES ) {
 		$this->mime_checker = new finfo( FILEINFO_MIME_TYPE );
 		$this->path = $path;
+		$input_size = filesize( $path );
+		$input_size !== false || throw new InvalidArgumentException( "Could not determine file size: {$path}", self::ERR_IO );
+		$input_size <= self::MAX_INPUT_BYTES || throw new InvalidArgumentException( "Input exceeds parser limit of " . self::MAX_INPUT_BYTES . " bytes", self::ERR_INVALID_SCHEMA );
+		$this->input_size = $input_size;
 
 		// Needed for buffer resolution when URIs are encountered.
 		$directory = dirname( $path );
@@ -202,7 +216,7 @@ final class GLTFParser {
 				[ $version, $length ] = $this->readHeaderGlb( $resource );
 				$properties = $this->readChunkGlb( $resource, self::CHUNK_JSON );
 				is_array( $properties ) || throw new InvalidArgumentException( "Expected GLB JSON chunk", self::ERR_INVALID_SCHEMA );
-				if ( !feof( $resource ) ) {
+				if ( ftell( $resource ) < $this->input_size ) {
 					// a GLB file has only one buffer entry
 					$buffer = $this->readChunkGlb( $resource, self::CHUNK_BIN );
 					is_string( $buffer ) || throw new InvalidArgumentException( "Expected GLB binary chunk", self::ERR_INVALID_SCHEMA );
@@ -212,6 +226,7 @@ final class GLTFParser {
 				fclose( $resource );
 			}
 		} else {
+			$input_size <= self::MAX_JSON_BYTES || throw new InvalidArgumentException( "JSON exceeds parser limit of " . self::MAX_JSON_BYTES . " bytes", self::ERR_INVALID_SCHEMA );
 			$contents = file_get_contents( $path );
 			$contents !== false || throw new InvalidArgumentException( "Could not read file: {$path}", self::ERR_IO );
 			$length = strlen( $contents );
@@ -252,12 +267,14 @@ final class GLTFParser {
 	 */
 	private function readHeaderGlb( $resource ): array {
 		$header = fread( $resource, 12 );
-		$header !== false || throw new InvalidArgumentException( "Could not read file: {$this->path}", self::ERR_IO );
+		$header !== false || throw new InvalidArgumentException( "Could not read GLB header: {$this->path}", self::ERR_IO );
+		strlen( $header ) === 12 || throw new InvalidArgumentException( "Could not read complete GLB header: {$this->path}", self::ERR_IO );
 		$decoded = unpack( "V3h/", $header );
 		$magic = $decoded["h1"];
 		$version = $decoded["h2"];
 		$length = $decoded["h3"];
 		$magic === self::HEADER_MAGIC || throw new InvalidArgumentException( "Improperly formatted GLB header: Magic has unexpected value: " . bin2hex( $magic ) );
+		$length === $this->input_size || throw new InvalidArgumentException( "GLB header length ({$length}) does not match file size ({$this->input_size})", self::ERR_INVALID_SCHEMA );
 		return [ $version, $length ];
 	}
 
@@ -270,19 +287,25 @@ final class GLTFParser {
 	 */
 	public function readChunkGlb( $resource, int $expected_type ): array|string|null {
 		$structure = fread( $resource, 8 );
-		$structure !== false || throw new InvalidArgumentException( "Could not read file: {$this->path}", self::ERR_IO );
+		$structure !== false || throw new InvalidArgumentException( "Could not read GLB chunk header: {$this->path}", self::ERR_IO );
+		strlen( $structure ) === 8 || throw new InvalidArgumentException( "Could not read complete GLB chunk header: {$this->path}", self::ERR_IO );
 		$decoded = unpack( "V2s/", $structure );
 		$length = $decoded["s1"];
 		$type = $decoded["s2"];
 		$type === $expected_type || throw new InvalidArgumentException( "Unexpected chunk type ({$type}), expected {$expected_type}" );
+		$remaining = $this->input_size - ftell( $resource );
+		$length <= $remaining || throw new InvalidArgumentException( "GLB chunk length ({$length}) exceeds remaining file size ({$remaining})", self::ERR_INVALID_SCHEMA );
+		$type !== self::CHUNK_JSON || $length <= self::MAX_JSON_BYTES || throw new InvalidArgumentException( "JSON chunk exceeds parser limit of " . self::MAX_JSON_BYTES . " bytes", self::ERR_INVALID_SCHEMA );
 		if ( $type === self::CHUNK_JSON ) {
-			$data = fread( $resource, $length );
-			$data !== false || throw new InvalidArgumentException( "Could not read file: {$this->path}", self::ERR_IO );
+			$data = $length === 0 ? "" : fread( $resource, $length );
+			$data !== false || throw new InvalidArgumentException( "Could not read GLB JSON chunk: {$this->path}", self::ERR_IO );
+			strlen( $data ) === $length || throw new InvalidArgumentException( "Could not read complete GLB JSON chunk: {$this->path}", self::ERR_IO );
 			return self::decodeJsonArray( $data );
 		}
 		if ( $type === self::CHUNK_BIN ) {
-			$data = fread( $resource, $length );
-			$data !== false || throw new InvalidArgumentException( "Could not read file: {$this->path}", self::ERR_IO );
+			$data = $length === 0 ? "" : fread( $resource, $length );
+			$data !== false || throw new InvalidArgumentException( "Could not read GLB binary chunk: {$this->path}", self::ERR_IO );
+			strlen( $data ) === $length || throw new InvalidArgumentException( "Could not read complete GLB binary chunk: {$this->path}", self::ERR_IO );
 			return $data;
 		}
 		// do not read into memory chunk of unknown types, only move offset to the end of chunk.
@@ -357,6 +380,7 @@ final class GLTFParser {
 			foreach ( $properties["buffers"] as $index => $entry ) {
 				JSONSchema::validate( $properties, $required_buffers, [ "buffers", $index ] );
 				JSONSchema::validate( $properties, $required_buffers + $optional_buffers, [ "buffers", $index ], JSONSchema::FLAG_OPTIONAL | JSONSchema::FLAG_REPORT_UNKNOWN_KEYS );
+				$entry["byteLength"] >= 1 || throw new InvalidArgumentException( "Expected 'byteLength' >= 1, got {$entry["byteLength"]}", self::ERR_INVALID_SCHEMA );
 				if ( !$binary ) {
 					[ $value, $mime ] = $this->resolveURI( $entry["uri"], $relative_dir, $resolve_remote, $entry["byteLength"], self::ALLOWED_MIME_URI_BUFFER );
 					$buffers[$index] = new GLTFBuffer( $value, $entry["byteLength"], $entry["uri"], $entry["name"] ?? null, $entry["extensions"] ?? [], $entry["extras"] ?? [] );
@@ -364,6 +388,10 @@ final class GLTFParser {
 					$index === 0 || throw new InvalidArgumentException( "Binary specification must define only one buffer, got a buffer at index {$index}", self::ERR_INVALID_SCHEMA );
 					isset( $buffers[$index] ) || throw new InvalidArgumentException( "Binary specification must pre-define buffers", self::ERR_INVALID_SCHEMA );
 					$buffers[$index]->value ?? throw new InvalidArgumentException( "Expected binary specification buffer to be resolved, got unresolved {$buffers[$index]->uri}", self::ERR_INVALID_SCHEMA );
+					$actual_length = strlen( $buffers[$index]->value );
+					$actual_length >= $entry["byteLength"] || throw new InvalidArgumentException( "GLB buffer length ({$actual_length}) does not match declared length ({$entry["byteLength"]})", self::ERR_INVALID_SCHEMA );
+					$actual_length <= $entry["byteLength"] + 3 || throw new InvalidArgumentException( "GLB buffer length ({$actual_length}) does not match declared length ({$entry["byteLength"]})", self::ERR_INVALID_SCHEMA );
+					$buffers[$index]->byte_length = $entry["byteLength"];
 				}
 			}
 		}
@@ -384,6 +412,7 @@ final class GLTFParser {
 		// integrity check
 		foreach ( $buffer_views as $index => $view ) {
 			isset( $buffers[$view->buffer] ) || throw new InvalidArgumentException( "Buffer at index {$index} points to an undefined buffer index {$view->buffer} (have n_buffers=" . count( $buffers ) . ")" );
+			$view->byte_offset <= $buffers[$view->buffer]->byte_length - $view->byte_length || throw new InvalidArgumentException( "Buffer view at index {$index} exceeds buffer length", self::ERR_INVALID_SCHEMA );
 		}
 		return [ $buffers, $buffer_views ];
 	}
@@ -568,8 +597,10 @@ final class GLTFParser {
 			// perform sparse substitution for $values
 			foreach ( $sparse[0] as $index_s => $index_replace ) {
 				$offset = $index_replace * $component_count;
-				$replacement = array_slice( $sparse[1], $index_s * $component_count, $component_count );
-				array_splice( $values, $offset, $component_count, $replacement );
+				$replacement_offset = $index_s * $component_count;
+				for ( $component = 0; $component < $component_count; $component++ ) {
+					$values[$offset + $component] = $sparse[1][$replacement_offset + $component];
+				}
 			}
 
 			$accessor_values[] = [ $component_type, $component_count, $entry["count"], $values ];
@@ -589,7 +620,7 @@ final class GLTFParser {
 		if ( $allowed_mimes === null ) {
 			return true;
 		}
-		$ext = strtolower( $ext );
+		$ext = $ext === null ? null : strtolower( $ext );
 		foreach ( $allowed_mimes as $entry ) {
 			if ( $entry === $mime || $entry === [ null, $ext ] || $entry === [ $mime, $ext ] ) {
 				return true;
@@ -611,6 +642,10 @@ final class GLTFParser {
 	 * @return array{string, string} a pair of the returned raw buffer (byte array) and mime type
 	 */
 	public function resolveURI( string $uri, ?string $base_directory, bool $resolve_remote, ?int $length = null, ?array $allowed_mimes = null ): array {
+		$this->resolved_resources < $this->max_resolved_resources || throw new InvalidArgumentException( "Resolved resources exceed parser limit of {$this->max_resolved_resources}", self::ERR_INVALID_SCHEMA );
+		$remaining = $this->max_resolved_resource_bytes - $this->resolved_resource_bytes;
+		$remaining > 0 || throw new InvalidArgumentException( "Resolved resource bytes exceed parser limit of {$this->max_resolved_resource_bytes}", self::ERR_INVALID_SCHEMA );
+		$length === null || $length <= $remaining || throw new InvalidArgumentException( "Resolved resource bytes exceed parser limit of {$this->max_resolved_resource_bytes}", self::ERR_INVALID_SCHEMA );
 		if ( str_starts_with( $uri, "data:" ) ) {
 			$token_end = strpos( $uri, ",", 5 );
 			if ( $token_end === false || $token_end > 64 ) {
@@ -621,7 +656,7 @@ final class GLTFParser {
 			$mime = explode( ";", $uri_type, 2 )[0];
 			$this->isMimeAllowed( $mime, null, $allowed_mimes ) || throw new InvalidArgumentException( "Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_EMBEDDED );
 			if ( $uri_type === "application/octet-stream" ) {
-				return [ urldecode( $uri_data ), $mime ];
+				return [ $this->accountResolvedResource( urldecode( $uri_data ), $length ), $mime ];
 			}
 			if ( in_array( $uri_type, [
 				"application/octet-stream;base64",
@@ -631,29 +666,38 @@ final class GLTFParser {
 			], true ) ) {
 				$result = base64_decode( $uri_data );
 				$result !== false || throw new InvalidArgumentException( "Improperly encoded base64 data supplied for URI type {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED );
-				return [ $result, $mime ];
+				return [ $this->accountResolvedResource( $result, $length ), $mime ];
 			}
 			throw new InvalidArgumentException( "Expected URI type to be one of: application/octet-stream, application/octet-stream;base64, application/gltf-buffer;base64, got {$uri_type}", self::ERR_URI_RESOLUTION_EMBEDDED );
 		}
 		if ( filter_var( $uri, FILTER_VALIDATE_URL ) ) {
 			$resolve_remote || throw new InvalidArgumentException( "Remote resolution is not allowed", self::ERR_URI_RESOLUTION_REMOTE );
 			// TODO: Validate return type, HTTP response code
-			$data = file_get_contents( $uri, length: $length );
+			$data = file_get_contents( $uri, length: $length ?? $remaining + 1 );
 			$data !== false || throw new InvalidArgumentException( "Remote resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_REMOTE );
 			$mime = $this->mime_checker->buffer( $data );
 			$this->isMimeAllowed( $mime, null, $allowed_mimes ) || throw new InvalidArgumentException( "Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_REMOTE );
-			return [ $data, $mime ];
+			return [ $this->accountResolvedResource( $data, $length ), $mime ];
 		}
 		$base_directory ?? throw new InvalidArgumentException( "Local resolution is not allowed", self::ERR_URI_RESOLUTION_LOCAL );
 		\FileBackend::isPathTraversalFree( $decoded_uri = urldecode( $uri ) ) || throw new InvalidArgumentException( "Directory traversal is not allowed in local URI: {$uri}", self::ERR_URI_RESOLUTION_LOCAL );
 		$path = $base_directory . DIRECTORY_SEPARATOR . $decoded_uri;
 		( is_file( $path ) && file_exists( $path ) ) || throw new InvalidArgumentException( "File not found: {$path}", self::ERR_URI_RESOLUTION_LOCAL );
 		$ext = pathinfo( $path, PATHINFO_EXTENSION );
-		$data = file_get_contents( $path, length: $length );
+		$data = file_get_contents( $path, length: $length ?? $remaining + 1 );
 		$data !== false || throw new InvalidArgumentException( "Local resolution failed for uri: {$uri}", self::ERR_URI_RESOLUTION_LOCAL );
 		$mime = $this->mime_checker->buffer( $data );
 		$this->isMimeAllowed( $mime, $ext, $allowed_mimes ) || throw new InvalidArgumentException( "Unsupported MIME type {$mime}", self::ERR_URI_RESOLUTION_LOCAL );
-		return [ $data, $mime ];
+		return [ $this->accountResolvedResource( $data, $length ), $mime ];
+	}
+
+	private function accountResolvedResource( string $data, ?int $expected_length ): string {
+		$length = strlen( $data );
+		$expected_length === null || $length === $expected_length || throw new InvalidArgumentException( "Resolved resource length ({$length}) does not match declared length ({$expected_length})", self::ERR_INVALID_SCHEMA );
+		$length <= $this->max_resolved_resource_bytes - $this->resolved_resource_bytes || throw new InvalidArgumentException( "Resolved resource bytes exceed parser limit of {$this->max_resolved_resource_bytes}", self::ERR_INVALID_SCHEMA );
+		$this->resolved_resource_bytes += $length;
+		$this->resolved_resources++;
+		return $data;
 	}
 
 	public function calculateNodeTransformationMatrix( array $node ): array {
@@ -689,44 +733,46 @@ final class GLTFParser {
 	/**
 	 * Computes length of X, Y, and Z planes of the model.
 	 *
+	 * @param int $max_node_references
+	 * @param int $max_transformed_vertices
 	 * @return array{float, float, float}|null a tuple of lengths of X, Y, and Z planes respectively, or null if the
 	 * model dimensions could not be inferred.
 	 */
-	public function computeModelDimensions(): ?array {
-		$values = [];
+	public function computeModelDimensions( int $max_node_references = self::MAX_SCENE_NODE_REFERENCES, int $max_transformed_vertices = self::MAX_TRANSFORMED_VERTICES ): ?array {
 		$nodes = [];
 		$stack = [];
 		$offset = 0;
+		$node_references = 0;
+		$transformed_vertices = 0;
+		$minimum = [ INF, INF, INF ];
+		$maximum = [ -INF, -INF, -INF ];
 		foreach ( $this->properties["scenes"] as $scene ) {
 			foreach ( $scene["nodes"] as $node ) {
-				$stack[] = [ $node, [ Matrix::IDENTITY4 ] ];
+				++$node_references <= $max_node_references || throw new InvalidArgumentException( "Scene node references exceed parser limit of {$max_node_references}", self::ERR_INVALID_SCHEMA );
+				if ( !isset( $nodes[$node] ) ) {
+					$nodes[$node] = true;
+					$stack[] = [ $node, Matrix::IDENTITY4 ];
+				}
 			}
 		}
 
 		while ( isset( $stack[$offset] ) ) {
-			[ $index, $global_transformations ] = $stack[$offset++];
+			[ $index, $global_transformation ] = $stack[$offset++];
 			$node = $this->properties["nodes"][$index];
-			$nodes[$index] = true;
-
-			$transformations = $global_transformations;
-			// Append the local transformation to the global transformations.
-			$transformations[] = $this->calculateNodeTransformationMatrix( $node );
+			$transformation = Matrix::multiply( $global_transformation, $this->calculateNodeTransformationMatrix( $node ), 4 );
 
 			if ( isset( $node["children"] ) ) {
 				foreach ( $node["children"] as $child ) {
+					++$node_references <= $max_node_references || throw new InvalidArgumentException( "Scene node references exceed parser limit of {$max_node_references}", self::ERR_INVALID_SCHEMA );
 					if ( !isset( $nodes[$child] ) ) {
-						$stack[] = [ $child, $transformations ];
+						$nodes[$child] = true;
+						$stack[] = [ $child, $transformation ];
 					}
 				}
 			}
 
 			if ( !isset( $node["mesh"] ) ) {
 				continue;
-			}
-
-			$transformation = $transformations[0];
-			for ( $i = 1, $j = count( $transformations ); $i < $j; $i++ ) {
-				$transformation = Matrix::multiply( $transformation, $transformations[$i], 4 );
 			}
 
 			$mesh = $this->properties["meshes"][$node["mesh"]];
@@ -741,24 +787,26 @@ final class GLTFParser {
 				}
 				[ $comp_type, $comp_size, $n_comp, $comp_values ] = $this->accessor_values[$primitive["attributes"]["POSITION"]];
 				for ( $i = 0, $j = count( $comp_values ); $i < $j; $i += $comp_size ) {
+					++$transformed_vertices <= $max_transformed_vertices || throw new InvalidArgumentException( "Transformed vertices exceed parser limit of {$max_transformed_vertices}", self::ERR_INVALID_SCHEMA );
 					$x = $comp_values[$i];
 					$y = $comp_values[$i + 1];
 					$z = $comp_values[$i + 2];
-					$values[] = [
+					$value = [
 						( $transformation[0] * $x ) + ( $transformation[1] * $y ) + ( $transformation[2] * $z ) + $transformation[3],
 						( $transformation[4] * $x ) + ( $transformation[5] * $y ) + ( $transformation[6] * $z ) + $transformation[7],
 						( $transformation[8] * $x ) + ( $transformation[9] * $y ) + ( $transformation[10] * $z ) + $transformation[11]
 					];
+					for ( $axis = 0; $axis < 3; $axis++ ) {
+						$minimum[$axis] = min( $minimum[$axis], $value[$axis] );
+						$maximum[$axis] = max( $maximum[$axis], $value[$axis] );
+					}
 				}
 			}
 		}
-		if ( count( $values ) === 0 ) {
+		if ( $transformed_vertices === 0 ) {
 			return null;
 		}
-		$x = array_column( $values, 0 );
-		$y = array_column( $values, 1 );
-		$z = array_column( $values, 2 );
-		return [ max( $x ) - min( $x ), max( $y ) - min( $y ), max( $z ) - min( $z ) ];
+		return [ $maximum[0] - $minimum[0], $maximum[1] - $minimum[1], $maximum[2] - $minimum[2] ];
 	}
 
 	/**
