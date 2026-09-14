@@ -8,6 +8,53 @@ permissions:
   contents: read
 
 jobs:
+  composer-test:
+    name: Composer tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out GLTFHandler
+        uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          tools: composer
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress
+      - name: Run Composer tests
+        run: composer test
+
+  phan:
+    name: Phan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out GLTFHandler
+        uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+          tools: composer
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress
+      - name: Run Phan
+        run: composer phan
+
+  npm-test:
+    name: npm tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out GLTFHandler
+        uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Run npm tests
+        run: npm test
+
   phpunit:
     name: PHPUnit (MediaWiki ${{ matrix.mediawiki }}, PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
