@@ -1,5 +1,9 @@
 # GLTFHandler
 [![CI](https://github.com/Muqsit/mediawiki-extensions-GLTFHandler/actions/workflows/ci.yml/badge.svg)](https://github.com/Muqsit/mediawiki-extensions-GLTFHandler/actions/workflows/ci.yml)
+[![Latest Stable Version](https://poser.pugx.org/muqsit/gltfhandler/v/stable)](https://packagist.org/packages/muqsit/gltfhandler)
+[![MediaWiki](https://img.shields.io/badge/MediaWiki-1.43%2B-36c)](https://www.mediawiki.org/wiki/Extension:GLTFHandler)
+[![PHP](https://img.shields.io/badge/PHP-tested%208.1%20%7C%208.5-777BB4?logo=php&logoColor=white)](https://github.com/Muqsit/mediawiki-extensions-GLTFHandler/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/Muqsit/mediawiki-extensions-GLTFHandler)](COPYING)
 
 GLTFHandler lets you upload and interact with GLTF models on MediaWiki. It uses [google/model-viewer](https://github.com/google/model-viewer) library to
 display the 3D models and optionally view them in your environment using augmented reality (on supported devices).
