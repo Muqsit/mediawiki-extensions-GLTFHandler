@@ -5,23 +5,12 @@ namespace MediaWiki\Extension\GLTFHandler;
 use InvalidArgumentException;
 use MediaWiki\Extension\GLTFHandler\Parser\GLTFParser;
 use MediaWiki\Status\Status;
-use function array_combine;
-use function array_filter;
-use function count;
-use function explode;
-use function implode;
-use function in_array;
 use function is_numeric;
 use function max;
 use function preg_match;
 
 class GLTFHandler extends \MediaHandler {
 
-	/**
-	 * @param \MediaHandlerState $state
-	 * @param string $path
-	 * @return array|null
-	 */
 	public function getSizeAndMetadata($state, $path){
 		global $wgGLTFHandlerMaxAccessorValues;
 		try{
@@ -70,10 +59,6 @@ class GLTFHandler extends \MediaHandler {
 		return parent::verifyUpload( $fileName );
 	}
 
-	/**
-	 * @param \File $image
-	 * @return bool
-	 */
 	public function isFileMetadataValid($image){
 		if($image->getMetadataItem("Version") === null){
 			return self::METADATA_BAD;
@@ -81,101 +66,35 @@ class GLTFHandler extends \MediaHandler {
 		return self::METADATA_GOOD;
 	}
 
-	/**
-	 * @param \File $image
-	 * @param array &$params
-	 * @return true
-	 */
 	public function normaliseParams( $image, &$params ) {
 		return true;
 	}
 
-	/**
-	 * Prevent "no higher resolution" message.
-	 *
-	 * @param \File $file
-	 * @return true
-	 */
 	public function mustRender( $file ) {
 		return true;
 	}
 
-	/**
-	 * @return array
-	 */
 	public function getParamMap() {
-		return [
-			"img_width" => "width",
-			"gltfhandler_animation_name" => "animation-name",
-			"gltfhandler_ar" => "ar",
-			"gltfhandler_autoplay" => "autoplay",
-			"gltfhandler_camera_orbit" => "camera-orbit",
-			"gltfhandler_max_camera_orbit" => "max-camera-orbit",
-			"gltfhandler_environment" => "environment",
-			"gltfhandler_poster" => "poster",
-			"gltfhandler_skybox" => "skybox",
-			"gltfhandler_skybox_height" => "skybox-height"
-		];
+		return array_column(Constants::PARAMS, "name", "magic_word_id");
 	}
 
-	/**
-	 * @param string $name
-	 * @param mixed $value
-	 * @return true
-	 */
 	public function validateParam( $name, $value ) {
-		if(in_array( $name, [ "width", "height"], true )){
-			return $value > 0;
-		}
-		if(in_array($name, ["animation-name", "ar", "autoplay", "camera-orbit", "max-camera-orbit", "poster", "skybox", "environment"], true)){
-			return true;
-		}
-		if($name === "skybox-height"){
-			return is_numeric($value) || preg_match('/\s*([0-9.]+)\s*(mm|m|cm)/m', $value) > 0;
-		}
-		return true;
+		return match($name){
+			"width", "height" => $value > 0,
+			"skybox-height" => is_numeric($value) || preg_match('/\s*([0-9.]+)\s*(mm|m|cm)/m', $value) > 0,
+			default => true
+		};
+	}
+
+	public function makeParamString($params){
+		return bin2hex(json_encode($params));
+	}
+
+	public function parseParamString($str){
+		return json_decode(hex2bin($str), true);
 	}
 
 	/**
-	 * @param array $params
-	 * @return string
-	 */
-	public function makeParamString( $params ) {
-		return implode("-", [
-			$params["width"] ?? "",
-			$params["camera-orbit"] ?? "",
-			$params["max-camera-orbit"] ?? "",
-			$params["animation-name"] ?? "",
-			isset($params["ar"]) ? "true" : "false",
-			isset($params["autoplay"]) ? "true" : "false",
-			$params["poster"] ?? "",
-			$params["skybox"] ?? "",
-			$params["skybox-height"] ?? "",
-			$params["environment"] ?? ""
-		]);
-	}
-
-	/**
-	 * @param string $str
-	 * @return array|false
-	 */
-	public function parseParamString( $str ) {
-		$values = explode("-", $str);
-		if(count($values) !== 7){
-			return false;
-		}
-		$params = array_combine(["width", "camera-orbit", "max-camera-orbit", "animation-name", "ar", "autoplay", "poster", "skybox", "skybox-height", "environment"], $values);
-		$params = array_filter($params, function($x){ return $x !== ""; });
-		$params["ar"] = $params["ar"] === "true";
-		return $params;
-	}
-
-	/**
-	 * @param \File $image
-	 * @param string $dstPath
-	 * @param string $dstUrl
-	 * @param array $params
-	 * @param int $flags
 	 * @return GLTFTransformOutput
 	 */
 	public function doTransform( $image, $dstPath, $dstUrl, $params, $flags = 0 ) {
