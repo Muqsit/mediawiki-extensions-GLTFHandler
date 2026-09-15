@@ -7,6 +7,7 @@ use InvalidArgumentException;
 use JsonException;
 use function array_fill;
 use function array_keys;
+use function array_push;
 use function array_values;
 use function base64_decode;
 use function bin2hex;
@@ -592,14 +593,21 @@ final class GLTFParser {
 				( $offset_accessor + $offset_view ) % $component_type->size === 0 || throw new InvalidArgumentException( "Expected accessor offset ({$offset_accessor}) + view offset ({$offset_view}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA );
 				$view->byte_stride === null || $view->byte_stride % $component_type->size === 0 || throw new InvalidArgumentException( "Expected byte stride of view ({$view->byte_stride}) to be a multiple of size of accessor component '{$component_type->name}' ({$component_type->size})", self::ERR_INVALID_SCHEMA );
 
-				$EFFECTIVE_BYTE_STRIDE = $view->byte_stride ?? 0;
-				$fitness = $offset_accessor + $EFFECTIVE_BYTE_STRIDE * ( $entry["count"] - 1 ) + $component_type->size * $component_count;
+				$element_size = $component_type->size * $component_count;
+				$stride = $view->byte_stride ?? $element_size;
+				$stride >= $element_size || throw new InvalidArgumentException( "Accessor element size ({$element_size}) exceeds byte stride ({$stride})", self::ERR_INVALID_SCHEMA );
+				$fitness = $offset_accessor + $stride * ( $entry["count"] - 1 ) + $element_size;
 				$fitness <= $view->byte_length || throw new InvalidArgumentException( "Expected accessor fitness ({$fitness}) <= buffer view length ({$view->byte_length})", self::ERR_INVALID_SCHEMA );
 
-				$values = unpack( $component_type->format . ( $entry["count"] * $component_count ) . "/", $buffers[$view->buffer]->value, $offset_accessor + $offset_view );
-				$values = array_values( $values );
+				$values = [];
+				$format = $component_type->format . $component_count . "/";
+				$data = $buffers[$view->buffer]->value;
+				$offset = $offset_accessor + $offset_view;
+				for ( $i = 0; $i < $entry["count"]; $i++, $offset += $stride ) {
+					array_push( $values, ...unpack( $format, $data, $offset ) );
+				}
 			} else {
-				$values = array_fill( 0, $entry["count"], 0 );
+				$values = array_fill( 0, $entry["count"] * $component_count, 0 );
 			}
 
 			// perform sparse substitution for $values
