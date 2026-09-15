@@ -162,8 +162,6 @@ jobs:
           coverage: none
           extensions: intl, mbstring, sqlite3
           tools: composer
-      - name: Install Assimp
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends assimp-utils
       - name: Install MediaWiki dependencies
         working-directory: mediawiki
         run: composer install --no-interaction --no-progress

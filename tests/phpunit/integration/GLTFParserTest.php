@@ -4,7 +4,6 @@ namespace MediaWiki\Extension\GLTFHandler\Tests;
 
 use InvalidArgumentException;
 use MediaWiki\Extension\GLTFHandler\Parser\GLTFParser;
-use MediaWiki\Shell\Shell;
 use function dirname;
 use function file_put_contents;
 use function json_encode;
@@ -18,35 +17,26 @@ class GLTFParserTest extends \MediaWikiIntegrationTestCase {
 	/**
 	 * @dataProvider provideModels
 	 */
-	public function testStatsMatchAssimp( string $file ): void {
+	public function testStats( string $file, array $expected ): void {
 		$path = dirname( __DIR__, 2 ) . "/resources/{$file}";
-		$result = Shell::command( "assimp", "info", $path, "-r" )->includeStderr()->execute();
-		$output = $result->getStdout();
-		self::assertSame( 0, $result->getExitCode(), $output );
 		$stats = ( new GLTFParser( $path ) )->computeStats();
-		// Assimp includes its default material.
-		$stats["materialCount"]++;
-		foreach ( [
-			"Meshes" => "drawCallCount",
-			"Animations" => "animationCount",
-			"Materials" => "materialCount",
-			"Vertices" => "totalVertexCount",
-			"Faces" => "totalTriangleCount"
-		] as $label => $stat ) {
-			self::assertMatchesRegularExpression( "/^{$label}:\\s+{$stats[$stat]}$/m", $output, $file );
+		$keys = [ "drawCallCount", "animationCount", "materialCount", "totalVertexCount", "totalTriangleCount" ];
+		foreach ( $keys as $index => $stat ) {
+			self::assertSame( $expected[$index], $stats[$stat], $stat );
 		}
 	}
 
 	public static function provideModels(): array {
+		// Expected counts: draw calls, animations, materials, vertices, triangles.
 		return [
-			"interleaved accessors" => [ "BoxInterleaved.glb" ],
-			"embedded texture" => [ "BoxTextured.glb" ],
-			"animation" => [ "BoxAnimated.glb" ],
-			"skinning" => [ "RiggedSimple.glb" ],
-			"morph targets" => [ "AnimatedMorphCube.glb" ],
-			"production mesh" => [ "Duck.glb" ],
-			"multi-part scene" => [ "CesiumMilkTruck.glb" ],
-			"non-indexed geometry" => [ "TriangleWithoutIndices.gltf" ]
+			"interleaved accessors" => [ "BoxInterleaved.glb", [ 1, 0, 1, 24, 12 ] ],
+			"embedded texture" => [ "BoxTextured.glb", [ 1, 0, 1, 24, 12 ] ],
+			"animation" => [ "BoxAnimated.glb", [ 2, 1, 2, 320, 254 ] ],
+			"skinning" => [ "RiggedSimple.glb", [ 1, 1, 1, 160, 188 ] ],
+			"morph targets" => [ "AnimatedMorphCube.glb", [ 1, 1, 1, 24, 12 ] ],
+			"production mesh" => [ "Duck.glb", [ 1, 0, 1, 2399, 4212 ] ],
+			"multi-part scene" => [ "CesiumMilkTruck.glb", [ 4, 1, 4, 3995, 2856 ] ],
+			"non-indexed geometry" => [ "TriangleWithoutIndices.gltf", [ 1, 0, 0, 3, 1 ] ]
 		];
 	}
 
