@@ -4,6 +4,7 @@ namespace MediaWiki\Extension\GLTFHandler\Tests;
 
 use InvalidArgumentException;
 use MediaWiki\Extension\GLTFHandler\Parser\GLTFParser;
+use function base64_encode;
 use function dirname;
 use function file_put_contents;
 use function json_encode;
@@ -46,6 +47,36 @@ class GLTFParserTest extends \MediaWikiIntegrationTestCase {
 		$this->expectException( InvalidArgumentException::class );
 		$this->expectExceptionCode( GLTFParser::ERR_INVALID_SCHEMA );
 		new GLTFParser( $path );
+	}
+
+	public function testDimensionsRespectByteStrideAndParentScale(): void {
+		$path = $this->getNewTempDirectory() . "/test.gltf";
+		$data = pack( "g*", 1, 2, 3, 100, 4, 6, 8, 100 );
+		file_put_contents( $path, json_encode( [
+			"asset" => [ "version" => "2.0" ],
+			"buffers" => [ [ "byteLength" => 32, "uri" => "data:application/octet-stream;base64," . base64_encode( $data ) ] ],
+			"bufferViews" => [ [ "buffer" => 0, "byteLength" => 32, "byteStride" => 16 ] ],
+			"accessors" => [ [ "bufferView" => 0, "componentType" => 5126, "count" => 2, "type" => "VEC3" ] ],
+			"meshes" => [ [ "primitives" => [ [ "mode" => 0, "attributes" => [ "POSITION" => 0 ] ] ] ] ],
+			"nodes" => [ [ "scale" => [ 2, 3, 4 ], "children" => [ 1 ] ], [ "mesh" => 0 ] ],
+			"scenes" => [ [ "nodes" => [ 0 ] ] ]
+		] ) );
+		$parser = new GLTFParser( $path );
+		self::assertSame( [ 1.0, 2.0, 3.0, 4.0, 6.0, 8.0 ], $parser->accessor_values[0][3] );
+		self::assertSame( [ 6.0, 12.0, 20.0 ], $parser->computeModelDimensions() );
+	}
+
+	public function testSparseAccessorZeroFillsUnspecifiedVertices(): void {
+		$path = $this->getNewTempDirectory() . "/test.gltf";
+		$data = pack( "Vg*", 1, 2, 3, 4 );
+		file_put_contents( $path, json_encode( [
+			"asset" => [ "version" => "2.0" ],
+			"buffers" => [ [ "byteLength" => 16, "uri" => "data:application/octet-stream;base64," . base64_encode( $data ) ] ],
+			"bufferViews" => [ [ "buffer" => 0, "byteLength" => 4 ], [ "buffer" => 0, "byteOffset" => 4, "byteLength" => 12 ] ],
+			"accessors" => [ [ "componentType" => 5126, "count" => 3, "type" => "VEC3", "sparse" => [ "count" => 1, "indices" => [ "bufferView" => 0, "componentType" => 5125 ], "values" => [ "bufferView" => 1 ] ] ] ]
+		] ) );
+		$parser = new GLTFParser( $path );
+		self::assertEquals( [ 0, 0, 0, 2, 3, 4, 0, 0, 0 ], $parser->accessor_values[0][3] );
 	}
 
 	public function testRejectsCumulativeResolvedResourcesBeyondLimit(): void {
