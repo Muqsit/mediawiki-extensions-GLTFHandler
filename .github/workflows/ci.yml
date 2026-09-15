@@ -142,9 +142,11 @@ jobs:
           - mediawiki: '1.43'
             ref: REL1_43
             php: '8.1'
+            phpunit-config: phpunit.xml.dist
           - mediawiki: '1.46'
             ref: REL1_46
             php: '8.5'
+            phpunit-config: phpunit.xml.template
     steps:
       - name: Check out MediaWiki
         uses: actions/checkout@v7
@@ -159,7 +161,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: none
+          coverage: pcov
           extensions: intl, mbstring, sqlite3
           tools: composer
       - name: Install MediaWiki dependencies
@@ -182,4 +184,23 @@ jobs:
         run: printf "\nwfLoadExtension( 'GLTFHandler' );\n" >> LocalSettings.php
       - name: Run extension PHPUnit tests
         working-directory: mediawiki
-        run: composer phpunit:entrypoint -- --testdox extensions/GLTFHandler/tests/phpunit
+        run: |
+          sed -i '/<coverage[ >]/,/<\/coverage>/d' "${{ matrix.phpunit-config }}"
+          composer phpunit:entrypoint -- --configuration "${{ matrix.phpunit-config }}" --testdox --coverage-filter extensions/GLTFHandler/src --coverage-html extensions/GLTFHandler/coverage --coverage-clover extensions/GLTFHandler/coverage/coverage.xml extensions/GLTFHandler/tests/phpunit
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-mw${{ matrix.mediawiki }}-php${{ matrix.php }}
+          path: mediawiki/extensions/GLTFHandler/coverage
+          if-no-files-found: error
+      - name: Update gist line coverage
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        working-directory: mediawiki/extensions/GLTFHandler
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ vars.GIST_ID }}
+          COVERAGE_FILE: ${{ github.event.repository.name }}-line-coverage-mw${{ matrix.mediawiki }}-php${{ matrix.php }}.json
+        run: |
+          metrics=$(yq -p xml --xml-attribute-prefix '' -o json '.coverage.project.metrics' coverage/coverage.xml)
+          badge=$(jq '(100 * (.coveredstatements | tonumber) / (.statements | tonumber)) as $p | {schemaVersion: 1, label: "coverage", message: (($p * 100 | round) / 100 | tostring) + "%", color: (if $p <= 50 then "red" elif $p < 90 then "yellow" else "green" end)}' <<< "$metrics")
+          gh api --method PATCH "gists/$GIST_ID" -f "files[$COVERAGE_FILE][content]=$badge" --silent
