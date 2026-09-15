@@ -1,0 +1,20 @@
+{
+  "asset": { "version": "2.0" },
+  "extensionsUsed": [ "KHR_draco_mesh_compression" ],
+  "scene": 0,
+  "scenes": [ { "nodes": [ 0, 1 ] } ],
+  "nodes": [ { "mesh": 0 }, { "mesh": 1, "translation": [ 2, 0, 0 ] } ],
+  "meshes": [
+    { "primitives": [ { "attributes": { "POSITION": 0 } } ] },
+    { "primitives": [ {
+      "attributes": { "POSITION": 0 },
+      "extensions": { "KHR_draco_mesh_compression": { "bufferView": 1, "attributes": { "POSITION": 0 } } }
+    } ] }
+  ],
+  "buffers": [
+    { "byteLength": 36, "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA" },
+    { "byteLength": 70, "uri": "data:application/octet-stream;base64,RFJBQ08CAgEBAAAAAwEAAQAAAQf/AREB/wAAAQAJAwAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAA==" }
+  ],
+  "bufferViews": [ { "buffer": 0, "byteLength": 36 }, { "buffer": 1, "byteLength": 70 } ],
+  "accessors": [ { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [ 0, 0, 0 ], "max": [ 1, 1, 0 ] } ]
+}

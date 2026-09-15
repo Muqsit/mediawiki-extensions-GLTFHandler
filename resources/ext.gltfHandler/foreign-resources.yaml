@@ -3,3 +3,14 @@ model-viewer:
   homepage: https://modelviewer.dev/
   version: 4.3.1
   type: doc-only
+# Draco and Basis artifacts come from three@0.183.2; upstream versions are unspecified.
+draco:
+  license: Apache-2.0
+  homepage: https://github.com/google/draco
+  version: unknown
+  type: doc-only
+basis-universal:
+  license: Apache-2.0
+  homepage: https://github.com/BinomialLLC/basis_universal
+  version: unknown
+  type: doc-only

@@ -15,6 +15,28 @@
 			"externalReferences": [
 				{ "url": "https://modelviewer.dev/", "type": "website" }
 			]
+		},
+		{
+			"type": "library",
+			"name": "Draco decoder",
+			"description": "Artifacts from three@0.183.2 (upstream decoder version is unspecified).",
+			"licenses": [
+				{ "license": { "id": "Apache-2.0" } }
+			],
+			"externalReferences": [
+				{ "url": "https://github.com/google/draco", "type": "website" }
+			]
+		},
+		{
+			"type": "library",
+			"name": "Basis Universal transcoder",
+			"description": "Artifacts from three@0.183.2 (upstream transcoder version is unspecified).",
+			"licenses": [
+				{ "license": { "id": "Apache-2.0" } }
+			],
+			"externalReferences": [
+				{ "url": "https://github.com/BinomialLLC/basis_universal", "type": "website" }
+			]
 		}
 	]
 }

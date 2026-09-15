@@ -1,5 +1,7 @@
 'use strict';
 
+/* global customElements, document, mw */
+
 const fs = require( 'fs' );
 const path = require( 'path' );
 const { test, expect } = require( '@playwright/test' );
@@ -41,23 +43,7 @@ async function rejectUpload( request, filename, mimeType, buffer, token ) {
 	expect( body.upload, JSON.stringify( body ) ).toBeUndefined();
 }
 
-function makeEmbeddedGltf() {
-	const vertices = Buffer.alloc( 36 );
-	const values = [ 0, 0, 0, 1, 0, 0, 0, 1, 0 ];
-	values.forEach( ( value, index ) => vertices.writeFloatLE( value, index * 4 ) );
-	return Buffer.from( JSON.stringify( {
-		scene: 0,
-		scenes: [ { nodes: [ 0 ] } ],
-		nodes: [ { mesh: 0 } ],
-		meshes: [ { primitives: [ { attributes: { POSITION: 0 } } ] } ],
-		buffers: [ { uri: `data:application/octet-stream;base64,${ vertices.toString( 'base64' ) }`, byteLength: vertices.length } ],
-		bufferViews: [ { buffer: 0, byteLength: vertices.length, target: 34962 } ],
-		accessors: [ { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [ 0, 0, 0 ], max: [ 1, 1, 0 ] } ],
-		asset: { version: '2.0' }
-	} ) );
-}
-
-test( 'accepts valid and rejects invalid GLB and glTF uploads', async ( { request } ) => {
+test( 'accepts valid and rejects invalid GLB and glTF uploads', async ( { page, request } ) => {
 	const username = process.env.MW_USERNAME || 'Admin';
 	const password = process.env.MW_PASSWORD || 'AdminPassword123!';
 	const loginToken = await getToken( request, 'login' );
@@ -70,11 +56,33 @@ test( 'accepts valid and rejects invalid GLB and glTF uploads', async ( { reques
 	const csrfToken = await getToken( request, 'csrf' );
 	const suffix = Date.now();
 	const glb = fs.readFileSync( path.join( __dirname, '..', 'resources', 'BoxInterleaved.glb' ) );
+	const gltf = fs.readFileSync( path.join( __dirname, '..', 'resources', 'TriangleDraco.gltf' ) );
 	const negativeDirectory = path.join( __dirname, '..', 'resources', 'negative' );
 	const negativeGlb = fs.readFileSync( path.join( negativeDirectory, 'Mesh_PrimitiveRestart_00.glb' ) );
 	const negativeGltf = fs.readFileSync( path.join( negativeDirectory, 'Mesh_PrimitiveRestart_00.gltf' ) );
+	const validGltfName = `Playwright-${ suffix }.gltf`;
 	await upload( request, `Playwright-${ suffix }.glb`, 'model/gltf-binary', glb, csrfToken );
-	await upload( request, `Playwright-${ suffix }.gltf`, 'model/gltf+json', makeEmbeddedGltf(), csrfToken );
+	await upload( request, validGltfName, 'model/gltf+json', gltf, csrfToken );
 	await rejectUpload( request, `Invalid-Playwright-${ suffix }.glb`, 'model/gltf-binary', negativeGlb, csrfToken );
 	await rejectUpload( request, `Invalid-Playwright-${ suffix }.gltf`, 'model/gltf+json', negativeGltf, csrfToken );
+
+	const decoderRequests = [];
+	page.on( 'request', ( assetRequest ) => {
+		if ( /\/draco\/draco_(wasm_wrapper\.js|decoder\.wasm)$/.test( assetRequest.url() ) ) {
+			decoderRequests.push( assetRequest.url() );
+		}
+	} );
+	await page.goto( `/index.php/File:${ validGltfName }` );
+	await page.waitForFunction( () => Boolean( document.querySelector( 'model-viewer' ).loaded ) );
+	expect( decoderRequests ).toHaveLength( 2 );
+	expect( await page.evaluate( () => {
+		const ModelViewer = customElements.get( 'model-viewer' );
+		const assets = mw.config.get( 'wgExtensionAssetsPath' );
+		const decoders = assets + '/GLTFHandler/resources/ext.gltfHandler/decoders/';
+		return {
+			draco: ModelViewer.dracoDecoderLocation === decoders + 'draco/',
+			ktx2: ModelViewer.ktx2TranscoderLocation === decoders + 'basis/',
+			lottie: ModelViewer.lottieLoaderLocation
+		};
+	} ) ).toEqual( { draco: true, ktx2: true, lottie: '' } );
 } );

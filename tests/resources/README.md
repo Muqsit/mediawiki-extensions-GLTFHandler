@@ -12,5 +12,8 @@ These fixtures come from [KhronosGroup/glTF-Sample-Assets](https://github.com/Kh
 | Duck | Sony Computer Entertainment | SCEA Shared Source License 1.0 |
 | RiggedSimple | Cesium | CC-BY-4.0 |
 | TriangleWithoutIndices | Marco Hutter | CC0-1.0 |
+| TriangleDraco (derived from TriangleWithoutIndices) | Marco Hutter | CC0-1.0 |
 
 The [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/legalcode), [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/legalcode), [SCEA](SCEA.txt), and [Cesium trademark](LicenseRef-LegalMark-Cesium.txt) terms apply as listed above.
+
+TriangleDraco includes the original triangle for server-side dimensions and a translated Draco-compressed copy, encoded with the glTF encoder bundled in three@0.183.2.

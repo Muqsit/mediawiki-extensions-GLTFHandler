@@ -119,7 +119,7 @@ jobs:
         working-directory: mediawiki/extensions/GLTFHandler
         run: |
           npm run build:model-viewer
-          git diff --exit-code -- resources/ext.gltfHandler/model-viewer-umd.min.js
+          git diff --exit-code -- resources/ext.gltfHandler/model-viewer-umd.min.js resources/ext.gltfHandler/decoders
       - name: Install Chromium
         working-directory: mediawiki/extensions/GLTFHandler
         run: npx playwright install --with-deps chromium

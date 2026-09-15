@@ -5,6 +5,12 @@ $( () => {
 		return;
 	}
 
+	const decoderPath = mw.config.get( 'wgExtensionAssetsPath' ) + '/GLTFHandler/resources/ext.gltfHandler/decoders/';
+	window.ModelViewerElement = {
+		dracoDecoderLocation: decoderPath + 'draco/',
+		ktx2TranscoderLocation: decoderPath + 'basis/',
+		lottieLoaderLocation: ''
+	};
 	mw.loader.load( 'ext.gltfHandler' );
 	window.addEventListener( 'resize', () => {
 		for ( const element of elements ) {

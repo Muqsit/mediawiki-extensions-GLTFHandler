@@ -2,7 +2,7 @@
 	"name": "GLTFHandler",
 	"private": true,
 	"scripts": {
-		"build:model-viewer": "esbuild node_modules/@google/model-viewer/dist/model-viewer-umd.min.js --target=es2017 --supported:template-literal=false --pure:console.log --minify --legal-comments=inline --outfile=resources/ext.gltfHandler/model-viewer-umd.min.js",
+		"build:model-viewer": "esbuild node_modules/@google/model-viewer/dist/model-viewer-umd.min.js --target=es2017 --supported:template-literal=false --pure:console.log --minify --legal-comments=inline --outfile=resources/ext.gltfHandler/model-viewer-umd.min.js && node scripts/vendor-model-viewer-assets.js",
 		"test": "grunt test",
 		"test:e2e": "playwright test"
 	},
@@ -15,10 +15,12 @@
 		"grunt-banana-checker": "0.13.0",
 		"grunt-eslint": "24.3.0",
 		"grunt-stylelint": "0.20.1",
-		"stylelint-config-wikimedia": "0.18.0"
+		"stylelint-config-wikimedia": "0.18.0",
+		"three": "0.183.2"
 	},
 	"eslintIgnore": [
 		"mediawiki/**",
+		"resources/ext.gltfHandler/decoders/**/*.js",
 		"resources/ext.gltfHandler/model-viewer-umd.min.js",
 		"vendor/**"
 	]
